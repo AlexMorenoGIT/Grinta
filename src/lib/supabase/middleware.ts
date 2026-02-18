@@ -35,6 +35,7 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    url.searchParams.set('returnTo', request.nextUrl.pathname)
     return NextResponse.redirect(url)
   }
 
@@ -47,7 +48,7 @@ export async function updateSession(request: NextRequest) {
   if (user && !isOnboarding && !isPublic) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('onboarding_completed')
+      .select('onboarding_completed, is_admin')
       .eq('id', user.id)
       .single()
 
@@ -55,6 +56,15 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone()
       url.pathname = '/onboarding'
       return NextResponse.redirect(url)
+    }
+
+    // Protect /admin route
+    if (pathname.startsWith('/admin')) {
+      if (!profile?.is_admin) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/home'
+        return NextResponse.redirect(url)
+      }
     }
   }
 

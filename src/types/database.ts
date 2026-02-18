@@ -27,6 +27,9 @@ export interface Database {
           draws: number
           avg_rating: number | null
           onboarding_completed: boolean
+          is_admin: boolean
+          wero_phone: string | null
+          rib: string | null
           created_at: string
           updated_at: string
         }
@@ -47,6 +50,9 @@ export interface Database {
           draws?: number
           avg_rating?: number | null
           onboarding_completed?: boolean
+          is_admin?: boolean
+          wero_phone?: string | null
+          rib?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -66,6 +72,9 @@ export interface Database {
           draws?: number
           avg_rating?: number | null
           onboarding_completed?: boolean
+          is_admin?: boolean
+          wero_phone?: string | null
+          rib?: string | null
           updated_at?: string
         }
       }
@@ -83,6 +92,7 @@ export interface Database {
           score_equipe_b: number | null
           created_by: string | null
           notes: string | null
+          price_total: number | null
           created_at: string
           updated_at: string
         }
@@ -99,6 +109,7 @@ export interface Database {
           score_equipe_b?: number | null
           created_by?: string | null
           notes?: string | null
+          price_total?: number | null
         }
         Update: {
           title?: string
@@ -111,6 +122,7 @@ export interface Database {
           score_equipe_a?: number | null
           score_equipe_b?: number | null
           notes?: string | null
+          price_total?: number | null
         }
       }
       match_players: {
@@ -119,6 +131,7 @@ export interface Database {
           match_id: string
           player_id: string
           team: 'A' | 'B' | null
+          has_paid: boolean
           joined_at: string
         }
         Insert: {
@@ -126,10 +139,12 @@ export interface Database {
           match_id: string
           player_id: string
           team?: 'A' | 'B' | null
+          has_paid?: boolean
           joined_at?: string
         }
         Update: {
           team?: 'A' | 'B' | null
+          has_paid?: boolean
         }
       }
       compositions: {

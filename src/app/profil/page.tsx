@@ -5,13 +5,12 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import {
-  User, TrendingUp, Crown, Shield, Zap, Eye, EyeOff,
-  ChevronUp, ChevronDown, Minus, RotateCcw, LogOut
+  User, TrendingUp, Shield, Zap, Eye, EyeOff,
+  Minus, RotateCcw, LogOut, Crown, Copy, Check
 } from 'lucide-react'
 import { BottomNav } from '@/components/grinta/BottomNav'
-import { ELOBadge, EloTierLabel } from '@/components/grinta/ELOBadge'
 import { CreateMatchModal } from '@/components/grinta/CreateMatchModal'
-import type { Profile, EloHistory } from '@/types/database'
+import type { Profile } from '@/types/database'
 
 const CRITERES = [
   { id: 'technique_score', label: 'Technique', color: '#AAFF00', desc: 'Contrôle, passes, dribbles' },
@@ -24,17 +23,26 @@ export default function ProfilPage() {
   const supabase = createClient() as any
 
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [history, setHistory] = useState<EloHistory[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'stats' | 'elo' | 'settings'>('stats')
+  const [tab, setTab] = useState<'stats' | 'settings'>('stats')
   const [showCreate, setShowCreate] = useState(false)
 
+  // Payment stats
+  const [totalSpent, setTotalSpent] = useState<number | null>(null)
+  const [totalCollected, setTotalCollected] = useState<number | null>(null)
+  const [copiedRib, setCopiedRib] = useState(false)
+
   // Settings form
-  const [form, setForm] = useState({ firstName: '', lastName: '', currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [form, setForm] = useState({
+    firstName: '', lastName: '',
+    weroPhone: '', rib: '',
+    currentPassword: '', newPassword: '', confirmPassword: '',
+  })
   const [showCurrentPwd, setShowCurrentPwd] = useState(false)
   const [showNewPwd, setShowNewPwd] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
+  const [savingPayment, setSavingPayment] = useState(false)
 
   // Self-assessment update
   const [selfScores, setSelfScores] = useState({ technique_score: 5, physique_score: 5, tactique_score: 5 })
@@ -44,21 +52,59 @@ export default function ProfilPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
 
-    const [profileRes, historyRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', user.id).single(),
-      supabase.from('elo_history').select('*').eq('player_id', user.id).order('created_at', { ascending: false }).limit(20),
-    ])
+    const profileRes = await supabase.from('profiles').select('*').eq('id', user.id).single()
 
     if (profileRes.data) {
       setProfile(profileRes.data)
-      setForm(prev => ({ ...prev, firstName: profileRes.data.first_name, lastName: profileRes.data.last_name }))
+      setForm(prev => ({
+        ...prev,
+        firstName: profileRes.data.first_name,
+        lastName: profileRes.data.last_name,
+        weroPhone: profileRes.data.wero_phone || '',
+        rib: profileRes.data.rib || '',
+      }))
       setSelfScores({
         technique_score: profileRes.data.technique_score || 5,
         physique_score: profileRes.data.physique_score || 5,
         tactique_score: profileRes.data.tactique_score || 5,
       })
     }
-    if (historyRes.data) setHistory(historyRes.data)
+
+    // Payment stats: dépensé (joueur)
+    const { data: myMatchPlayers } = await supabase
+      .from('match_players')
+      .select('has_paid, matches(price_total, max_players)')
+      .eq('player_id', user.id)
+      .eq('has_paid', true)
+
+    let spent = 0
+    if (myMatchPlayers) {
+      for (const mp of myMatchPlayers) {
+        if (mp.matches?.price_total && mp.matches?.max_players) {
+          spent += mp.matches.price_total / mp.matches.max_players
+        }
+      }
+    }
+    setTotalSpent(spent)
+
+    // Payment stats: collecté (organisateur)
+    const { data: myMatches } = await supabase
+      .from('matches')
+      .select('id, price_total, match_players(has_paid)')
+      .eq('created_by', user.id)
+
+    let collected = 0
+    if (myMatches) {
+      for (const m of myMatches) {
+        if (m.price_total) {
+          const paidCount = (m.match_players || []).filter((mp: any) => mp.has_paid).length
+          const pricePerPlayer = m.price_total / Math.max((m.match_players || []).length, 1)
+          collected += paidCount * pricePerPlayer
+        }
+      }
+    }
+    setTotalCollected(collected)
+
     setLoading(false)
   }, [router, supabase])
 
@@ -82,6 +128,24 @@ export default function ProfilPage() {
     setSavingProfile(false)
   }
 
+  const savePayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!profile) return
+    setSavingPayment(true)
+
+    const { error } = await supabase.from('profiles').update({
+      wero_phone: form.weroPhone || null,
+      rib: form.rib || null,
+    }).eq('id', profile.id)
+
+    if (error) toast.error('Erreur lors de la sauvegarde')
+    else {
+      toast.success('Infos paiement mises à jour !')
+      await loadData()
+    }
+    setSavingPayment(false)
+  }
+
   const savePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     if (form.newPassword !== form.confirmPassword) {
@@ -94,7 +158,6 @@ export default function ProfilPage() {
     }
     setSavingPassword(true)
 
-    // Re-authenticate then update
     const { data: { user } } = await supabase.auth.getUser()
     if (!user?.email) return
 
@@ -132,7 +195,7 @@ export default function ProfilPage() {
 
     if (error) toast.error('Erreur')
     else {
-      toast.success(`Auto-évaluation mise à jour ! Nouvel ELO de base : ${newElo}`)
+      toast.success(`Auto-évaluation mise à jour !`)
       await loadData()
     }
     setSavingScores(false)
@@ -183,8 +246,6 @@ export default function ProfilPage() {
               {profile.first_name.toUpperCase()} {profile.last_name.toUpperCase()}
             </h1>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              <ELOBadge elo={profile.elo} size="md" />
-              <EloTierLabel elo={profile.elo} />
               {profile.mvp_count > 0 && (
                 <span className="mvp-badge flex items-center gap-1">
                   <Crown className="w-3 h-3" /> {profile.mvp_count}× MVP
@@ -198,7 +259,6 @@ export default function ProfilPage() {
         <div className="flex gap-1 p-1 rounded-xl" style={{ background: '#111' }}>
           {([
             { key: 'stats', label: 'Stats' },
-            { key: 'elo', label: 'ELO' },
             { key: 'settings', label: 'Compte' },
           ] as const).map(t => (
             <button
@@ -298,73 +358,28 @@ export default function ProfilPage() {
                 })}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* TAB: ELO HISTORY */}
-        {tab === 'elo' && (
-          <div className="animate-fade-in space-y-3">
-            {/* ELO actuel large */}
-            <div className="card-dark p-6 text-center"
-              style={{
-                background: 'linear-gradient(135deg, rgba(170,255,0,0.08), rgba(170,255,0,0.02))',
-                borderColor: 'rgba(170,255,0,0.2)',
-              }}>
-              <p className="font-display-light text-xs text-[#555] tracking-widest mb-2">ELO ACTUEL</p>
-              <p className="font-display text-7xl lime-glow-text" style={{ color: 'var(--lime)' }}>
-                {profile.elo}
-              </p>
-              <EloTierLabel elo={profile.elo} />
-            </div>
-
-            {/* Historique */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
-                <h3 className="font-display text-base text-white">HISTORIQUE ELO</h3>
+            {/* Paiements */}
+            {(totalSpent !== null || totalCollected !== null) && (
+              <div className="card-dark p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-4 rounded-full" style={{ background: '#22C55E' }} />
+                  <h3 className="font-display text-base text-white">PAIEMENTS</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl p-3" style={{ background: '#0F0F0F', border: '1px solid #1A1A1A' }}>
+                    <p className="text-xs text-[#555] mb-1">DÉPENSÉ</p>
+                    <p className="font-display text-2xl text-white">{(totalSpent || 0).toFixed(2)} €</p>
+                    <p className="text-xs text-[#444] mt-0.5">en tant que joueur</p>
+                  </div>
+                  <div className="rounded-xl p-3" style={{ background: '#0F0F0F', border: '1px solid #1A1A1A' }}>
+                    <p className="text-xs text-[#555] mb-1">COLLECTÉ</p>
+                    <p className="font-display text-2xl text-white">{(totalCollected || 0).toFixed(2)} €</p>
+                    <p className="text-xs text-[#444] mt-0.5">en tant qu'organisateur</p>
+                  </div>
+                </div>
               </div>
-
-              {history.length === 0 ? (
-                <div className="card-dark p-6 text-center">
-                  <p className="font-display text-sm text-[#444]">AUCUN HISTORIQUE</p>
-                  <p className="text-xs text-[#333] mt-1">Joue des matchs pour voir l'évolution de ton ELO !</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {history.map((h) => (
-                    <div key={h.id} className="card-dark p-3 flex items-center gap-3">
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{
-                          background: h.delta > 0 ? 'rgba(34,197,94,0.12)' : h.delta < 0 ? 'rgba(239,68,68,0.12)' : 'rgba(107,114,128,0.12)',
-                          border: `1px solid ${h.delta > 0 ? 'rgba(34,197,94,0.25)' : h.delta < 0 ? 'rgba(239,68,68,0.25)' : 'rgba(107,114,128,0.2)'}`,
-                        }}
-                      >
-                        {h.delta > 0
-                          ? <ChevronUp className="w-4 h-4 text-green-400" />
-                          : h.delta < 0
-                          ? <ChevronDown className="w-4 h-4 text-red-400" />
-                          : <Minus className="w-4 h-4 text-gray-500" />
-                        }
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white truncate">{h.reason}</p>
-                        <p className="text-xs text-[#555]">
-                          {h.elo_before} → {h.elo_after} •{' '}
-                          {new Date(h.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                        </p>
-                      </div>
-                      <span
-                        className="font-display text-base font-bold flex-shrink-0"
-                        style={{ color: h.delta > 0 ? '#22C55E' : h.delta < 0 ? '#EF4444' : '#6B7280' }}
-                      >
-                        {h.delta > 0 ? `+${h.delta}` : h.delta}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            )}
           </div>
         )}
 
@@ -400,6 +415,44 @@ export default function ProfilPage() {
                 </div>
                 <button type="submit" disabled={savingProfile} className="btn-lime text-sm" style={{ padding: '10px 20px' }}>
                   {savingProfile ? 'SAUVEGARDE...' : 'ENREGISTRER'}
+                </button>
+              </form>
+            </div>
+
+            {/* Paiement */}
+            <div className="card-dark p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-1 h-4 rounded-full" style={{ background: '#22C55E' }} />
+                <h3 className="font-display text-base text-white">PAIEMENT</h3>
+              </div>
+              <p className="text-xs text-[#555] mb-4 leading-relaxed">
+                Renseigne tes infos pour que les joueurs puissent te rembourser facilement.
+              </p>
+              <form onSubmit={savePayment} className="space-y-3">
+                <div>
+                  <label className="block text-xs text-[#888] uppercase tracking-wider mb-1.5">
+                    <User className="w-3 h-3 inline mr-1" />Numéro Wero
+                  </label>
+                  <input
+                    value={form.weroPhone}
+                    onChange={e => setForm(p => ({ ...p, weroPhone: e.target.value }))}
+                    placeholder="06 12 34 56 78"
+                    className="input-dark"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#888] uppercase tracking-wider mb-1.5">
+                    RIB / IBAN
+                  </label>
+                  <input
+                    value={form.rib}
+                    onChange={e => setForm(p => ({ ...p, rib: e.target.value }))}
+                    placeholder="FR76 XXXX XXXX XXXX..."
+                    className="input-dark"
+                  />
+                </div>
+                <button type="submit" disabled={savingPayment} className="btn-lime text-sm" style={{ padding: '10px 20px' }}>
+                  {savingPayment ? 'SAUVEGARDE...' : 'ENREGISTRER'}
                 </button>
               </form>
             </div>
@@ -469,7 +522,7 @@ export default function ProfilPage() {
                 <h3 className="font-display text-base text-white">AUTO-ÉVALUATION</h3>
               </div>
               <p className="text-xs text-[#555] mb-4 leading-relaxed">
-                Tu penses que ton niveau a évolué ? Réévalue-toi — cela recalculera ton ELO de base. Sois honnête !
+                Tu penses que ton niveau a évolué ? Réévalue-toi. Sois honnête !
               </p>
 
               <div className="space-y-4 mb-4">
@@ -496,14 +549,6 @@ export default function ProfilPage() {
                     </div>
                   )
                 })}
-              </div>
-
-              <div className="p-3 rounded-xl mb-4 text-center"
-                style={{ background: 'rgba(170,255,0,0.06)', border: '1px solid rgba(170,255,0,0.15)' }}>
-                <p className="text-xs text-[#666] mb-1">Nouvel ELO de base</p>
-                <p className="font-display text-3xl" style={{ color: 'var(--lime)' }}>
-                  {Math.floor(((selfScores.technique_score + selfScores.physique_score + selfScores.tactique_score) / 3 * 100) + 500)}
-                </p>
               </div>
 
               <button onClick={saveSelfScores} disabled={savingScores} className="btn-ghost flex items-center gap-2 text-sm">

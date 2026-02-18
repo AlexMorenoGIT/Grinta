@@ -4,25 +4,27 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { X, MapPin, Calendar, Clock, Users, FileText, Euro } from 'lucide-react'
+import type { Match } from '@/types/database'
 
-interface CreateMatchModalProps {
+interface EditMatchModalProps {
+  match: Match
   open: boolean
   onClose: () => void
-  onCreated: () => void
+  onUpdated: () => void
 }
 
-export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalProps) {
+export function EditMatchModal({ match, open, onClose, onUpdated }: EditMatchModalProps) {
   const supabase = createClient() as any
 
   const [form, setForm] = useState({
-    title: '',
-    lieu: '',
-    date: '',
-    heure: '19:00',
-    google_maps_url: '',
-    max_players: '10',
-    notes: '',
-    price_total: '',
+    title: match.title,
+    lieu: match.lieu,
+    date: match.date,
+    heure: match.heure.substring(0, 5),
+    google_maps_url: match.google_maps_url || '',
+    max_players: String(match.max_players),
+    notes: match.notes || '',
+    price_total: match.price_total != null ? String(match.price_total) : '',
   })
   const [loading, setLoading] = useState(false)
 
@@ -34,12 +36,9 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
     e.preventDefault()
     setLoading(true)
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: match, error } = await supabase
+    const { error } = await supabase
       .from('matches')
-      .insert({
+      .update({
         title: form.title,
         lieu: form.lieu,
         date: form.date,
@@ -48,27 +47,18 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
         max_players: parseInt(form.max_players),
         notes: form.notes || null,
         price_total: form.price_total ? parseFloat(form.price_total) : null,
-        created_by: user.id,
       })
-      .select()
-      .single()
+      .eq('id', match.id)
 
     if (error) {
-      toast.error('Erreur lors de la création')
+      toast.error('Erreur lors de la mise à jour')
       setLoading(false)
       return
     }
 
-    // Auto-inscription du créateur
-    await supabase.from('match_players').insert({
-      match_id: match.id,
-      player_id: user.id,
-    })
-
-    toast.success('Match créé ! Tu es automatiquement inscrit.')
-    setForm({ title: '', lieu: '', date: '', heure: '19:00', google_maps_url: '', max_players: '10', notes: '', price_total: '' })
+    toast.success('Match mis à jour !')
     setLoading(false)
-    onCreated()
+    onUpdated()
     onClose()
   }
 
@@ -92,7 +82,7 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
         <div className="overflow-y-auto max-h-[calc(90dvh-40px)]">
           <div className="px-5 pb-4">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display text-2xl text-white">CRÉER UN MATCH</h2>
+              <h2 className="font-display text-2xl text-white">MODIFIER LE MATCH</h2>
               <button
                 onClick={onClose}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-[#555] hover:text-white hover:bg-[#1A1A1A] transition-all"
@@ -111,7 +101,6 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
                   name="title"
                   value={form.title}
                   onChange={handleChange}
-                  placeholder="Futsal vendredi soir"
                   required
                   className="input-dark"
                 />
@@ -126,7 +115,6 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
                   name="lieu"
                   value={form.lieu}
                   onChange={handleChange}
-                  placeholder="Complexe sportif Marcel Cerdan"
                   required
                   className="input-dark"
                 />
@@ -160,7 +148,6 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
                     onChange={handleChange}
                     required
                     className="input-dark"
-                    min={new Date().toISOString().split('T')[0]}
                   />
                 </div>
                 <div>
@@ -221,7 +208,6 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
                   name="notes"
                   value={form.notes}
                   onChange={handleChange}
-                  placeholder="Ex: Amenez vos chasubles rouges..."
                   rows={2}
                   className="input-dark resize-none"
                 />
@@ -229,7 +215,7 @@ export function CreateMatchModal({ open, onClose, onCreated }: CreateMatchModalP
 
               <div className="pt-2 pb-4">
                 <button type="submit" disabled={loading} className="btn-lime">
-                  {loading ? 'CRÉATION...' : 'CRÉER LE MATCH →'}
+                  {loading ? 'MISE À JOUR...' : 'ENREGISTRER LES MODIFICATIONS →'}
                 </button>
               </div>
             </form>

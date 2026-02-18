@@ -6,7 +6,6 @@ import { createClient } from '@/lib/supabase/client'
 import { MatchCard } from '@/components/grinta/MatchCard'
 import { BottomNav } from '@/components/grinta/BottomNav'
 import { CreateMatchModal } from '@/components/grinta/CreateMatchModal'
-import { ELOBadge } from '@/components/grinta/ELOBadge'
 import type { Match, MatchPlayer, Profile } from '@/types/database'
 import { Search, Zap } from 'lucide-react'
 
@@ -71,11 +70,6 @@ export default function HomePage() {
             <h1 className="font-display text-3xl text-white leading-tight">
               {profile ? `${profile.first_name.toUpperCase()} ${profile.last_name.charAt(0).toUpperCase()}.` : '...'}
             </h1>
-            {profile && (
-              <div className="mt-1.5 animate-fade-in delay-1">
-                <ELOBadge elo={profile.elo} size="sm" />
-              </div>
-            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
