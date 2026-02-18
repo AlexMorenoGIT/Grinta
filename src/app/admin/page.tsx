@@ -245,10 +245,15 @@ export default function AdminPage() {
                       <div className="min-w-0">
                         <p className="text-xs text-white font-semibold truncate">
                           {player.first_name} {player.last_name}
+                          {player.is_admin && (
+                            <span className="ml-1 text-[9px]" style={{ color: 'var(--lime)' }}>★</span>
+                          )}
                         </p>
-                        {player.is_admin && (
-                          <p className="text-[9px]" style={{ color: 'var(--lime)' }}>admin</p>
-                        )}
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[9px] font-bold" style={{ color: '#AAFF00' }}>T{player.technique_score ?? '—'}</span>
+                          <span className="text-[9px] font-bold" style={{ color: '#3B82F6' }}>P{player.physique_score ?? '—'}</span>
+                          <span className="text-[9px] font-bold" style={{ color: '#A855F7' }}>Ta{player.tactique_score ?? '—'}</span>
+                        </div>
                       </div>
                     </div>
                     <div className="col-span-2 text-right">

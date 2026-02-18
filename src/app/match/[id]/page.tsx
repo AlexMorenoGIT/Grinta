@@ -822,6 +822,16 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
             </h1>
           </div>
           <span className={statusConfig.class}>{statusConfig.label}</span>
+          {isCreator && match.status !== 'completed' && match.status !== 'cancelled' && (
+            <button
+              onClick={() => router.push(`/match/${id}/live`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-display text-xs font-bold tracking-wider transition-all"
+              style={{ background: 'rgba(170,255,0,0.12)', border: '1px solid rgba(170,255,0,0.3)', color: 'var(--lime)' }}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              LIVE
+            </button>
+          )}
           {isCreator && (
             <button
               onClick={() => setShowEditModal(true)}
