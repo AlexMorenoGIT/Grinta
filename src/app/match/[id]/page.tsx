@@ -810,7 +810,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
         style={{ background: 'linear-gradient(to bottom, #080808 80%, transparent)' }}>
         <div className="flex items-center gap-3 mb-4">
           <button
-            onClick={() => window.history.length > 1 ? router.back() : router.push('/home')}
+            onClick={() => router.push('/home')}
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
             style={{ background: '#141414', border: '1px solid #1E1E1E' }}
           >
