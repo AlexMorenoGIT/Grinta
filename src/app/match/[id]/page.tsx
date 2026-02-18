@@ -2,15 +2,15 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import {
   ArrowLeft, MapPin, Calendar, Clock, Users, Trophy,
-  Star, ChevronRight, Copy, Check, Shuffle, Zap,
-  Crown, Shield, Swords, EuroIcon, Settings
+  Star, Copy, Check, Shuffle, Zap,
+  Crown, Shield, Swords, EuroIcon, Settings, Target
 } from 'lucide-react'
-import type { Profile, Match, MatchPlayer, Composition, Rating, MvpVote } from '@/types/database'
+import type { Profile, Match, MatchPlayer, Composition, Rating, MvpVote, MatchGoal } from '@/types/database'
 import { EditMatchModal } from '@/components/grinta/EditMatchModal'
 
 type PlayerWithProfile = MatchPlayer & { profiles: Profile }
@@ -703,11 +703,257 @@ function RatingSection({ matchId, currentUserId, players }: {
 }
 
 // ─────────────────────────────────────────────
+// SECTION STATS POST-MATCH
+// ─────────────────────────────────────────────
+function fmtTime(s: number) {
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+}
+
+function StatsSection({ matchId, players, match }: {
+  matchId: string
+  players: PlayerWithProfile[]
+  match: Match
+}) {
+  const supabase = createClient() as any
+  const [goals, setGoals] = useState<MatchGoal[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase
+      .from('match_goals')
+      .select('*')
+      .eq('match_id', matchId)
+      .order('goal_order')
+      .then(({ data }: any) => {
+        if (data) setGoals(data as MatchGoal[])
+        setLoading(false)
+      })
+  }, [matchId, supabase])
+
+  const getPlayer = (id: string) => players.find(p => p.player_id === id)
+
+  // Calculs des tops
+  const scorerMap: Record<string, { player: PlayerWithProfile; goals: number }> = {}
+  const assistMap: Record<string, { player: PlayerWithProfile; assists: number }> = {}
+  goals.forEach(g => {
+    const scorer = getPlayer(g.scorer_id)
+    if (scorer) {
+      if (!scorerMap[g.scorer_id]) scorerMap[g.scorer_id] = { player: scorer, goals: 0 }
+      scorerMap[g.scorer_id].goals++
+    }
+    if (g.assist_id) {
+      const assister = getPlayer(g.assist_id)
+      if (assister) {
+        if (!assistMap[g.assist_id]) assistMap[g.assist_id] = { player: assister, assists: 0 }
+        assistMap[g.assist_id].assists++
+      }
+    }
+  })
+  const topScorer = Object.values(scorerMap).sort((a, b) => b.goals - a.goals)[0]
+  const topAssist = Object.values(assistMap).sort((a, b) => b.assists - a.assists)[0]
+
+  const teamAGoals = goals.filter(g => g.team === 'A')
+  const teamBGoals = goals.filter(g => g.team === 'B')
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <div className="skeleton h-20 rounded-xl" />
+        <div className="skeleton h-32 rounded-xl" />
+        <div className="skeleton h-48 rounded-xl" />
+      </div>
+    )
+  }
+
+  if (goals.length === 0) {
+    return (
+      <div className="card-dark p-8 text-center">
+        <Target className="w-8 h-8 mx-auto mb-3 text-[#333]" />
+        <p className="font-display text-sm text-[#555]">AUCUN BUT ENREGISTRÉ</p>
+        <p className="text-xs text-[#444] mt-1">Le live n'a pas été utilisé pour ce match.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+
+      {/* Score + durée */}
+      <div className="card-dark p-4">
+        <div className="flex items-center justify-center gap-6">
+          <div className="text-center">
+            <p className="font-display text-xs text-blue-400 mb-1">ÉQUIPE A</p>
+            <p className="font-display text-5xl text-blue-400" style={{ textShadow: '0 0 20px rgba(59,130,246,0.4)' }}>
+              {match.score_equipe_a ?? teamAGoals.length}
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="font-display text-2xl text-[#2A2A2A]">—</p>
+            {match.duration_seconds != null && (
+              <p className="text-[10px] text-[#444] font-display mt-1">{fmtTime(match.duration_seconds)}</p>
+            )}
+          </div>
+          <div className="text-center">
+            <p className="font-display text-xs text-red-400 mb-1">ÉQUIPE B</p>
+            <p className="font-display text-5xl text-red-400" style={{ textShadow: '0 0 20px rgba(239,68,68,0.4)' }}>
+              {match.score_equipe_b ?? teamBGoals.length}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Top scorer + Top assist */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="card-dark p-3">
+          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: 'var(--lime)' }}>⚽ BUTEUR</p>
+          {topScorer ? (
+            <>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold mb-2"
+                style={{
+                  background: topScorer.player.team === 'A' ? '#1A3A5C' : topScorer.player.team === 'B' ? '#3A1A1A' : '#1A1A1A',
+                  color: topScorer.player.team === 'A' ? '#60A5FA' : topScorer.player.team === 'B' ? '#F87171' : '#888',
+                  border: '1px solid #2A2A2A',
+                }}>
+                {topScorer.player.profiles.first_name[0]}{topScorer.player.profiles.last_name[0]}
+              </div>
+              <p className="text-sm text-white font-semibold leading-tight">
+                {topScorer.player.profiles.first_name} {topScorer.player.profiles.last_name}
+              </p>
+              <p className="font-display text-lg mt-0.5" style={{ color: 'var(--lime)' }}>
+                {topScorer.goals} but{topScorer.goals > 1 ? 's' : ''}
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-[#444]">—</p>
+          )}
+        </div>
+
+        <div className="card-dark p-3">
+          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: '#FFB800' }}>🎯 PASSEUR</p>
+          {topAssist ? (
+            <>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold mb-2"
+                style={{
+                  background: topAssist.player.team === 'A' ? '#1A3A5C' : topAssist.player.team === 'B' ? '#3A1A1A' : '#1A1A1A',
+                  color: topAssist.player.team === 'A' ? '#60A5FA' : topAssist.player.team === 'B' ? '#F87171' : '#888',
+                  border: '1px solid #2A2A2A',
+                }}>
+                {topAssist.player.profiles.first_name[0]}{topAssist.player.profiles.last_name[0]}
+              </div>
+              <p className="text-sm text-white font-semibold leading-tight">
+                {topAssist.player.profiles.first_name} {topAssist.player.profiles.last_name}
+              </p>
+              <p className="font-display text-lg mt-0.5" style={{ color: '#FFB800' }}>
+                {topAssist.assists} passe{topAssist.assists > 1 ? 's' : ''}
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-[#444]">—</p>
+          )}
+        </div>
+      </div>
+
+      {/* Timeline des buts */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
+          <h3 className="font-display text-base text-white">TIMELINE ({goals.length} but{goals.length > 1 ? 's' : ''})</h3>
+        </div>
+
+        <div className="space-y-2">
+          {goals.map((goal, i) => {
+            const scorer = getPlayer(goal.scorer_id)
+            const assister = goal.assist_id ? getPlayer(goal.assist_id) : null
+            const isA = goal.team === 'A'
+            return (
+              <div key={goal.id}
+                className="card-dark p-3 flex items-center gap-3"
+                style={{ borderLeft: `3px solid ${isA ? '#3B82F6' : '#EF4444'}` }}
+              >
+                {/* Minute */}
+                <div className="w-14 flex-shrink-0 text-center">
+                  <span className="font-display text-sm" style={{ color: isA ? '#60A5FA' : '#F87171' }}>
+                    {fmtTime(goal.minute)}
+                  </span>
+                </div>
+
+                {/* Icône but */}
+                <span className="text-base flex-shrink-0">⚽</span>
+
+                {/* Infos */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">
+                    {scorer ? `${scorer.profiles.first_name} ${scorer.profiles.last_name}` : '—'}
+                  </p>
+                  {assister && (
+                    <p className="text-xs text-[#555] truncate">
+                      → {assister.profiles.first_name} {assister.profiles.last_name}
+                    </p>
+                  )}
+                </div>
+
+                {/* Badge équipe */}
+                <span className={isA ? 'team-a-badge' : 'team-b-badge'}>
+                  ÉQ. {goal.team}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Stats par équipe */}
+      <div className="grid grid-cols-2 gap-3">
+        {(['A', 'B'] as const).map(team => {
+          const teamGoals = goals.filter(g => g.team === team)
+          const isA = team === 'A'
+          const scorers: Record<string, number> = {}
+          teamGoals.forEach(g => {
+            const p = getPlayer(g.scorer_id)
+            if (p) {
+              const name = `${p.profiles.first_name} ${p.profiles.last_name}`
+              scorers[name] = (scorers[name] || 0) + 1
+            }
+          })
+          return (
+            <div key={team} className="card-dark p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield className={`w-3.5 h-3.5 ${isA ? 'text-blue-400' : 'text-red-400'}`} />
+                <span className={isA ? 'team-a-badge' : 'team-b-badge'}>ÉQUIPE {team}</span>
+                <span className="font-display text-sm text-white ml-auto">{teamGoals.length} buts</span>
+              </div>
+              <div className="space-y-1">
+                {Object.entries(scorers)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([name, count]) => (
+                    <div key={name} className="flex items-center justify-between text-xs">
+                      <span className="text-[#888] truncate">{name}</span>
+                      <span className="font-display text-sm text-white ml-2 flex-shrink-0">
+                        {count > 1 ? `${count}×` : '⚽'}
+                      </span>
+                    </div>
+                  ))}
+                {Object.keys(scorers).length === 0 && (
+                  <p className="text-xs text-[#444]">Aucun but</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────
 // PAGE PRINCIPALE
 // ─────────────────────────────────────────────
 export default function MatchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient() as any
 
   const [match, setMatch] = useState<Match | null>(null)
@@ -716,7 +962,8 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [isRegistered, setIsRegistered] = useState(false)
   const [loading, setLoading] = useState(true)
   const [registerLoading, setRegisterLoading] = useState(false)
-  const [tab, setTab] = useState<'info' | 'compo' | 'notes' | 'whatsapp'>('info')
+  const initialTab = (searchParams.get('tab') as 'info' | 'compo' | 'stats' | 'notes' | 'whatsapp') ?? 'info'
+  const [tab, setTab] = useState<'info' | 'compo' | 'stats' | 'notes' | 'whatsapp'>(initialTab)
   const [showScoreForm, setShowScoreForm] = useState(false)
   const [scoreA, setScoreA] = useState('')
   const [scoreB, setScoreB] = useState('')
@@ -845,12 +1092,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 rounded-xl overflow-x-auto" style={{ background: '#111' }}>
-          {([
+          {(([
             { key: 'info', label: 'Infos' },
             { key: 'compo', label: 'Compos' },
+            ...(match.status === 'completed' ? [{ key: 'stats', label: '📊 Stats' }] : []),
             { key: 'notes', label: 'Notes' },
             { key: 'whatsapp', label: '📱 WA' },
-          ] as const).map(t => (
+          ]) as { key: typeof tab; label: string }[]).map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
@@ -1034,6 +1282,13 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               players={players}
               isCreator={isCreator}
             />
+          </div>
+        )}
+
+        {/* TAB: STATS */}
+        {tab === 'stats' && (
+          <div className="animate-fade-in">
+            <StatsSection matchId={id} players={players} match={match} />
           </div>
         )}
 

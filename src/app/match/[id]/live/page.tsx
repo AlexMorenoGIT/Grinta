@@ -223,20 +223,20 @@ function TeamZone({
           fontSize: 'clamp(16px, 2.2vw, 26px)',
           color,
           letterSpacing: '0.12em',
-          textAlign: isA ? 'left' : 'right',
+          textAlign: 'center',
         }}
       >
         ÉQUIPE {team}
       </div>
 
-      {/* Score */}
+      {/* Score — centré pour rester visible avec le Dynamic Island */}
       <div
         style={{
           ...DISPLAY,
-          fontSize: 'clamp(60px, 13vw, 128px)',
+          fontSize: 'clamp(72px, 16vw, 148px)',
           color,
           lineHeight: 0.85,
-          textAlign: isA ? 'left' : 'right',
+          textAlign: 'center',
           textShadow: `0 0 60px rgba(${rgb},0.35)`,
           letterSpacing: '-0.04em',
           transition: 'text-shadow 0.3s ease',
@@ -251,7 +251,7 @@ function TeamZone({
           display: 'flex',
           flexWrap: 'wrap',
           gap: '5px',
-          justifyContent: isA ? 'flex-start' : 'flex-end',
+          justifyContent: 'center',
           flex: 1,
           alignContent: 'flex-start',
         }}
@@ -282,9 +282,10 @@ function TeamZone({
       <div
         style={{
           display: 'flex',
-          flexDirection: isA ? 'row' : 'row-reverse',
+          flexDirection: 'row',
           gap: '8px',
           alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
         <button
@@ -604,6 +605,9 @@ export default function LivePage() {
   // ── End match confirmation modal
   const [showEndConfirm, setShowEndConfirm] = useState(false);
 
+  // ── Reset chrono confirmation modal
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   // ── Sync state
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -745,12 +749,37 @@ export default function LivePage() {
   const syncToSupabase = async () => {
     setIsSyncing(true);
     const supabase = createClient() as any;
+
+    // 1. Mettre à jour le match (score + statut + durée)
     await supabase
       .from('matches')
-      .update({ score_equipe_a: scoreA, score_equipe_b: scoreB, status: 'completed' })
+      .update({
+        score_equipe_a: scoreA,
+        score_equipe_b: scoreB,
+        status: 'completed',
+        duration_seconds: time,
+      })
       .eq('id', matchId);
+
+    // 2. Supprimer les buts existants (re-sync idempotent)
+    await supabase.from('match_goals').delete().eq('match_id', matchId);
+
+    // 3. Insérer tous les buts
+    if (events.length > 0) {
+      await supabase.from('match_goals').insert(
+        events.map((evt, i) => ({
+          match_id: matchId,
+          scorer_id: evt.scorer.id,
+          assist_id: evt.assist?.id ?? null,
+          team: evt.team,
+          minute: evt.timestamp,
+          goal_order: i + 1,
+        }))
+      );
+    }
+
     setIsSyncing(false);
-    router.push(`/match/${matchId}`);
+    router.push(`/match/${matchId}?tab=stats`);
   };
 
   // ── Stats computation ───────────────────────────────────────────────────────
@@ -1274,6 +1303,84 @@ export default function LivePage() {
         </div>
       )}
 
+      {/* Reset chrono confirmation modal */}
+      {showResetConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            style={{
+              background: '#111',
+              border: `1px solid #2A2A2A`,
+              borderRadius: '16px',
+              padding: '28px 32px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '20px',
+              minWidth: '260px',
+            }}
+          >
+            <div style={{ ...DISPLAY, fontSize: '22px', color: '#F0F0F0', letterSpacing: '0.06em' }}>
+              RÉINITIALISER LE CHRONO ?
+            </div>
+            <div style={{ fontSize: '13px', color: '#555', textAlign: 'center' }}>
+              Le temps repassera à 00:00.<br />Les buts et le score ne sont pas effacés.
+            </div>
+            <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+              <button
+                onClick={() => setShowResetConfirm(false)}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: '1px solid #2A2A2A',
+                  borderRadius: '10px',
+                  color: '#666',
+                  ...DISPLAY,
+                  fontSize: '14px',
+                  padding: '12px',
+                  cursor: 'pointer',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                ANNULER
+              </button>
+              <button
+                onClick={() => {
+                  setIsRunning(false);
+                  setTime(0);
+                  timeRef.current = 0;
+                  setShowResetConfirm(false);
+                }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '10px',
+                  color: '#CCC',
+                  ...DISPLAY,
+                  fontSize: '14px',
+                  padding: '12px',
+                  cursor: 'pointer',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                ↺ RESET
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Player selection overlay */}
       {showSelect && (
         <PlayerSelectOverlay
@@ -1441,11 +1548,7 @@ export default function LivePage() {
               {isRunning ? '⏸ PAUSE' : '▶ START'}
             </button>
             <button
-              onClick={() => {
-                setIsRunning(false);
-                setTime(0);
-                timeRef.current = 0;
-              }}
+              onClick={() => setShowResetConfirm(true)}
               style={{
                 background: 'transparent',
                 border: `1px solid ${BORDER}`,
@@ -1456,7 +1559,7 @@ export default function LivePage() {
                 padding: '8px 10px',
                 cursor: 'pointer',
               }}
-              title="Réinitialiser"
+              title="Réinitialiser le chrono"
             >
               ↺
             </button>

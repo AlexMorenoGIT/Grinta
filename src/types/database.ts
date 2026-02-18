@@ -90,6 +90,7 @@ export interface Database {
           status: 'upcoming' | 'ongoing' | 'completed' | 'cancelled'
           score_equipe_a: number | null
           score_equipe_b: number | null
+          duration_seconds: number | null
           created_by: string | null
           notes: string | null
           price_total: number | null
@@ -211,6 +212,28 @@ export interface Database {
         }
         Update: Record<string, never>
       }
+      match_goals: {
+        Row: {
+          id: string
+          match_id: string
+          scorer_id: string
+          assist_id: string | null
+          team: 'A' | 'B'
+          minute: number
+          goal_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          scorer_id: string
+          assist_id?: string | null
+          team: 'A' | 'B'
+          minute: number
+          goal_order: number
+        }
+        Update: Record<string, never>
+      }
       elo_history: {
         Row: {
           id: string
@@ -265,6 +288,7 @@ export type Composition = Database['public']['Tables']['compositions']['Row']
 export type Rating = Database['public']['Tables']['ratings']['Row']
 export type MvpVote = Database['public']['Tables']['mvp_votes']['Row']
 export type EloHistory = Database['public']['Tables']['elo_history']['Row']
+export type MatchGoal = Database['public']['Tables']['match_goals']['Row']
 
 export type MatchWithPlayers = Match & {
   match_players: (MatchPlayer & { profiles: Profile })[]
