@@ -99,6 +99,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Ensure full-bleed on iOS PWA (viewport-fit: cover) */
+    height: 100%;
   }
 
   body {
@@ -107,6 +109,25 @@
     font-family: 'DM Sans', sans-serif;
     min-height: 100dvh;
     overflow-x: hidden;
+    /* Respect iOS safe areas (notch / Dynamic Island / home indicator) */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* ─── PWA Standalone mode ─── */
+/* When launched from home screen: body fills the full screen */
+@media (display-mode: standalone) {
+  body {
+    /* Pull content under the status bar (already transparent via black-translucent) */
+    padding-top: env(safe-area-inset-top);
+  }
+
+  /* Hide any "open in browser" banners from shadcn components */
+  [data-pwa-hide] {
+    display: none !important;
   }
 }
 
