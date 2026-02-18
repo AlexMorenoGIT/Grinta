@@ -570,7 +570,7 @@ export default function ProfilPage() {
         )}
       </div>
 
-      <BottomNav onCreateMatch={() => setShowCreate(true)} />
+      <BottomNav onCreateMatch={() => setShowCreate(true)} isAdmin={profile?.is_admin ?? false} />
       <CreateMatchModal open={showCreate} onClose={() => setShowCreate(false)} onCreated={() => {}} />
     </div>
   )

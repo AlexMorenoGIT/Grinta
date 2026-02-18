@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import {
   ArrowLeft, Search, Trash2, Edit3, Users, Zap, Calendar,
-  MapPin, ChevronUp, ChevronDown, Shield
+  MapPin, ChevronUp, ChevronDown, Shield, RotateCcw
 } from 'lucide-react'
 import { EditMatchModal } from '@/components/grinta/EditMatchModal'
 import type { Profile, Match, MatchPlayer } from '@/types/database'
@@ -33,6 +33,7 @@ export default function AdminPage() {
   const [editMatch, setEditMatch] = useState<Match | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [resetting, setResetting] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -56,6 +57,20 @@ export default function AdminPage() {
     }
     check()
   }, [loadData, router, supabase])
+
+  const resetMatch = async (id: string) => {
+    setResetting(id)
+    const { error } = await supabase
+      .from('matches')
+      .update({ status: 'upcoming', score_equipe_a: null, score_equipe_b: null })
+      .eq('id', id)
+    if (error) toast.error('Erreur : ' + error.message)
+    else {
+      toast.success('Match remis à zéro — joueurs conservés')
+      await loadData()
+    }
+    setResetting(null)
+  }
 
   const deleteMatch = async (id: string) => {
     setDeleting(id)
@@ -333,7 +348,7 @@ export default function AdminPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button
                       onClick={() => setEditMatch(match)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
@@ -346,6 +361,22 @@ export default function AdminPage() {
                       <Edit3 className="w-3.5 h-3.5" />
                       ÉDITER
                     </button>
+
+                    {match.status !== 'upcoming' && (
+                      <button
+                        onClick={() => resetMatch(match.id)}
+                        disabled={resetting === match.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
+                        style={{
+                          background: 'rgba(170,255,0,0.07)',
+                          border: '1px solid rgba(170,255,0,0.2)',
+                          color: resetting === match.id ? '#555' : 'var(--lime)',
+                        }}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        {resetting === match.id ? '...' : 'RÉINITIALISER'}
+                      </button>
+                    )}
 
                     {confirmDelete === match.id ? (
                       <div className="flex gap-2 flex-1">

@@ -164,6 +164,7 @@ function TeamPreviewBlock({ team, players }: { team: 'A' | 'B'; players: Player[
 }
 
 function TeamZone({
+  id,
   team,
   players,
   score,
@@ -171,6 +172,7 @@ function TeamZone({
   onRemove,
   flashGoal,
 }: {
+  id?: string;
   team: 'A' | 'B';
   players: Player[];
   score: number;
@@ -184,6 +186,7 @@ function TeamZone({
 
   return (
     <div
+      id={id}
       style={{
         flex: 1,
         display: 'flex',
@@ -598,8 +601,8 @@ export default function LivePage() {
   const [selStep, setSelStep] = useState<SelectionStep>('SCORER');
   const [pendingScorer, setPendingScorer] = useState<Player | null>(null);
 
-  // ── End match long-press
-  const [endProgress, setEndProgress] = useState(0);
+  // ── End match confirmation modal
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
 
   // ── Sync state
   const [isSyncing, setIsSyncing] = useState(false);
@@ -607,7 +610,6 @@ export default function LivePage() {
   // ── Refs
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeRef = useRef(0);
-  const endPressRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventsScrollRef = useRef<HTMLDivElement>(null);
 
   // ── Load match data ─────────────────────────────────────────────────────────
@@ -730,30 +732,12 @@ export default function LivePage() {
     else setScoreB((s) => Math.max(0, s - 1));
   }, []);
 
-  // ── Long-press end match ────────────────────────────────────────────────────
+  // ── End match ───────────────────────────────────────────────────────────────
 
-  const startEndPress = useCallback(() => {
-    let p = 0;
-    endPressRef.current = setInterval(() => {
-      p += 100 / 30; // 3s = 30 intervals of 100ms
-      const clamped = Math.min(p, 100);
-      setEndProgress(clamped);
-      if (clamped >= 100) {
-        clearInterval(endPressRef.current!);
-        endPressRef.current = null;
-        setIsRunning(false);
-        setEndProgress(0);
-        setGameState('POST');
-      }
-    }, 100);
-  }, []);
-
-  const cancelEndPress = useCallback(() => {
-    if (endPressRef.current) {
-      clearInterval(endPressRef.current);
-      endPressRef.current = null;
-    }
-    setEndProgress(0);
+  const confirmEndMatch = useCallback(() => {
+    setIsRunning(false);
+    setShowEndConfirm(false);
+    setGameState('POST');
   }, []);
 
   // ── Sync to Supabase ────────────────────────────────────────────────────────
@@ -1210,6 +1194,86 @@ export default function LivePage() {
       <Scanlines />
       <PortraitWarning />
 
+      {/* Safe-area padding for Dynamic Island / notch in landscape */}
+      <style>{`
+        #team-zone-a { padding-left: max(14px, env(safe-area-inset-left, 14px)); }
+        #team-zone-b { padding-right: max(14px, env(safe-area-inset-right, 14px)); }
+      `}</style>
+
+      {/* End match confirmation modal */}
+      {showEndConfirm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          <div
+            style={{
+              background: '#111',
+              border: `1px solid #2A2A2A`,
+              borderRadius: '16px',
+              padding: '28px 32px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '20px',
+              minWidth: '260px',
+            }}
+          >
+            <div style={{ ...DISPLAY, fontSize: '22px', color: '#F0F0F0', letterSpacing: '0.06em' }}>
+              TERMINER LE MATCH ?
+            </div>
+            <div style={{ fontSize: '13px', color: '#555', textAlign: 'center' }}>
+              Le chrono sera arrêté et les statistiques<br />seront générées.
+            </div>
+            <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+              <button
+                onClick={() => setShowEndConfirm(false)}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: '1px solid #2A2A2A',
+                  borderRadius: '10px',
+                  color: '#666',
+                  ...DISPLAY,
+                  fontSize: '14px',
+                  padding: '12px',
+                  cursor: 'pointer',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                ANNULER
+              </button>
+              <button
+                onClick={confirmEndMatch}
+                style={{
+                  flex: 1,
+                  background: 'rgba(239,68,68,0.15)',
+                  border: '1px solid rgba(239,68,68,0.5)',
+                  borderRadius: '10px',
+                  color: TEAM_B_COLOR,
+                  ...DISPLAY,
+                  fontSize: '14px',
+                  padding: '12px',
+                  cursor: 'pointer',
+                  letterSpacing: '0.06em',
+                  fontWeight: 'bold',
+                }}
+              >
+                ■ TERMINER
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Player selection overlay */}
       {showSelect && (
         <PlayerSelectOverlay
@@ -1298,6 +1362,7 @@ export default function LivePage() {
 
         {/* Team A */}
         <TeamZone
+          id="team-zone-a"
           team="A"
           players={teamA}
           score={scoreA}
@@ -1397,54 +1462,29 @@ export default function LivePage() {
             </button>
           </div>
 
-          {/* End match long-press */}
+          {/* End match button */}
           <button
-            onPointerDown={startEndPress}
-            onPointerUp={cancelEndPress}
-            onPointerLeave={cancelEndPress}
+            onClick={() => setShowEndConfirm(true)}
             style={{
               background: 'rgba(239,68,68,0.07)',
-              border: `1px solid rgba(239,68,68,${endProgress > 0 ? '0.5' : '0.2'})`,
+              border: '1px solid rgba(239,68,68,0.3)',
               borderRadius: '8px',
-              color: endProgress > 0 ? TEAM_B_COLOR : '#5A3A3A',
+              color: '#EF4444',
               ...DISPLAY,
               fontSize: '11px',
               letterSpacing: '0.08em',
               padding: '8px 12px',
               cursor: 'pointer',
-              position: 'relative',
-              overflow: 'hidden',
               width: '100%',
-              transition: 'border-color 0.15s, color 0.15s',
-              touchAction: 'none',
             }}
           >
-            {endProgress > 0 && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: `${endProgress}%`,
-                  background: 'rgba(239,68,68,0.18)',
-                  transition: 'width 0.08s linear',
-                }}
-              />
-            )}
-            <span style={{ position: 'relative' }}>
-              ■ FIN DU MATCH
-              {endProgress > 0 && (
-                <span style={{ color: '#EF6666', marginLeft: '6px' }}>
-                  {Math.ceil((1 - endProgress / 100) * 3)}s
-                </span>
-              )}
-            </span>
+            ■ FIN DU MATCH
           </button>
         </div>
 
         {/* Team B */}
         <TeamZone
+          id="team-zone-b"
           team="B"
           players={teamB}
           score={scoreB}
