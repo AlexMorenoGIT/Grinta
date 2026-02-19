@@ -302,19 +302,11 @@ export default function ClassementPage() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-white truncate">
-                        {player.first_name} {player.last_name}
-                        {isMe && <span className="ml-1 text-[10px]" style={{ color: 'var(--lime)' }}>• MOI</span>}
-                      </p>
-                    </div>
+                    <p className="text-sm font-semibold text-white truncate">
+                      {player.first_name} {player.last_name}
+                      {isMe && <span className="ml-1 text-[10px]" style={{ color: 'var(--lime)' }}>• MOI</span>}
+                    </p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span
-                        className="text-[10px] font-display px-1.5 py-0.5 rounded"
-                        style={{ background: tier.bg, color: tier.color, border: `1px solid ${tier.border}` }}
-                      >
-                        {tier.label}
-                      </span>
                       {player.matches_played > 0 && (
                         <span className="text-[10px] text-[#555]">
                           {player.matches_played} match{player.matches_played > 1 ? 's' : ''}

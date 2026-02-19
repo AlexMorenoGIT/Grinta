@@ -12,11 +12,6 @@ import { BottomNav } from '@/components/grinta/BottomNav'
 import { CreateMatchModal } from '@/components/grinta/CreateMatchModal'
 import type { Profile } from '@/types/database'
 
-const CRITERES = [
-  { id: 'technique_score', label: 'Technique', color: '#AAFF00', desc: 'Contrôle, passes, dribbles' },
-  { id: 'physique_score', label: 'Physique', color: '#3B82F6', desc: 'Vitesse, endurance, puissance' },
-  { id: 'tactique_score', label: 'Tactique', color: '#A855F7', desc: 'Lecture du jeu, vision, placement' },
-]
 
 export default function ProfilPage() {
   const router = useRouter()
@@ -44,10 +39,6 @@ export default function ProfilPage() {
   const [savingPassword, setSavingPassword] = useState(false)
   const [savingPayment, setSavingPayment] = useState(false)
 
-  // Self-assessment update
-  const [selfScores, setSelfScores] = useState({ technique_score: 5, physique_score: 5, tactique_score: 5 })
-  const [savingScores, setSavingScores] = useState(false)
-
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
@@ -63,11 +54,6 @@ export default function ProfilPage() {
         weroPhone: profileRes.data.wero_phone || '',
         rib: profileRes.data.rib || '',
       }))
-      setSelfScores({
-        technique_score: profileRes.data.technique_score || 5,
-        physique_score: profileRes.data.physique_score || 5,
-        tactique_score: profileRes.data.tactique_score || 5,
-      })
     }
 
     // Payment stats: dépensé (joueur)
@@ -179,21 +165,6 @@ export default function ProfilPage() {
       setForm(prev => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }))
     }
     setSavingPassword(false)
-  }
-
-  const saveSelfScores = async () => {
-    if (!profile) return
-    setSavingScores(true)
-
-    // V2: ELO = elo_base (questionnaire) + elo_gain (matchs). Les sliders n'impactent plus l'ELO.
-    const { error } = await supabase.from('profiles').update(selfScores).eq('id', profile.id)
-
-    if (error) toast.error('Erreur')
-    else {
-      toast.success(`Auto-évaluation mise à jour !`)
-      await loadData()
-    }
-    setSavingScores(false)
   }
 
   const handleRedoQuestionnaire = async () => {
@@ -327,37 +298,45 @@ export default function ProfilPage() {
               </div>
             )}
 
-            {/* Auto-évaluation */}
+            {/* Questionnaire ELO */}
             <div className="card-dark p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-1 h-4 rounded-full" style={{ background: '#A855F7' }} />
-                  <h3 className="font-display text-base text-white">AUTO-ÉVALUATION</h3>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-1 h-4 rounded-full" style={{ background: '#FFB800' }} />
+                <h3 className="font-display text-base text-white">QUESTIONNAIRE ELO</h3>
+              </div>
+              <p className="text-xs text-[#555] mb-4 leading-relaxed">
+                Refais les 10 questions pour recalculer ton ELO de base. Ton historique de matchs sera préservé.
+              </p>
+
+              {(profile.elo_base != null) && (
+                <div className="flex items-center justify-between mb-4 p-3 rounded-xl" style={{ background: '#0F0F0F', border: '1px solid #1A1A1A' }}>
+                  <div className="text-center">
+                    <p className="text-[10px] text-[#555] font-display tracking-wider">BASE</p>
+                    <p className="font-display text-xl text-white">{profile.elo_base}</p>
+                  </div>
+                  <span className="font-display text-lg text-[#333]">+</span>
+                  <div className="text-center">
+                    <p className="text-[10px] text-[#555] font-display tracking-wider">MATCHS</p>
+                    <p className="font-display text-xl" style={{ color: (profile.elo_gain ?? 0) >= 0 ? 'var(--lime)' : '#EF4444' }}>
+                      {(profile.elo_gain ?? 0) >= 0 ? '+' : ''}{profile.elo_gain ?? 0}
+                    </p>
+                  </div>
+                  <span className="font-display text-lg text-[#333]">=</span>
+                  <div className="text-center">
+                    <p className="text-[10px] text-[#555] font-display tracking-wider">TOTAL</p>
+                    <p className="font-display text-xl text-white">{profile.elo}</p>
+                  </div>
                 </div>
-                <button
-                  onClick={() => setTab('settings')}
-                  className="text-xs text-[#555] hover:text-[#888] transition-colors font-display-light tracking-wider"
-                >
-                  MODIFIER →
-                </button>
-              </div>
-              <div className="space-y-3">
-                {CRITERES.map(c => {
-                  const score = profile[c.id as keyof Profile] as number | null || 0
-                  return (
-                    <div key={c.id}>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-sm text-[#888]">{c.label}</span>
-                        <span className="font-display font-bold text-white">{score}/10</span>
-                      </div>
-                      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#1A1A1A' }}>
-                        <div className="h-full rounded-full transition-all"
-                          style={{ width: `${score * 10}%`, background: c.color }} />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              )}
+
+              <button
+                onClick={handleRedoQuestionnaire}
+                className="btn-ghost flex items-center gap-2 text-sm"
+                style={{ color: '#FFB800', borderColor: 'rgba(255,184,0,0.3)' }}
+              >
+                <RotateCcw className="w-4 h-4" />
+                REFAIRE LE QUESTIONNAIRE
+              </button>
             </div>
 
             {/* Paiements */}
@@ -514,89 +493,6 @@ export default function ProfilPage() {
                   {savingPassword ? 'MODIFICATION...' : 'CHANGER LE MOT DE PASSE'}
                 </button>
               </form>
-            </div>
-
-            {/* Mise à jour auto-évaluation */}
-            <div className="card-dark p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-1 h-4 rounded-full" style={{ background: '#A855F7' }} />
-                <h3 className="font-display text-base text-white">AUTO-ÉVALUATION</h3>
-              </div>
-              <p className="text-xs text-[#555] mb-4 leading-relaxed">
-                Tu penses que ton niveau a évolué ? Réévalue-toi. Sois honnête !
-              </p>
-
-              <div className="space-y-4 mb-4">
-                {CRITERES.map(c => {
-                  const score = selfScores[c.id as keyof typeof selfScores]
-                  return (
-                    <div key={c.id}>
-                      <div className="flex justify-between items-center mb-2">
-                        <div>
-                          <span className="text-sm text-white font-semibold">{c.label}</span>
-                          <p className="text-xs text-[#555]">{c.desc}</p>
-                        </div>
-                        <span className="font-display text-2xl font-bold" style={{ color: c.color }}>{score}</span>
-                      </div>
-                      <input
-                        type="range" min={1} max={10} step={1}
-                        value={score}
-                        onChange={e => setSelfScores(prev => ({ ...prev, [c.id]: parseInt(e.target.value) }))}
-                        className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                        style={{
-                          background: `linear-gradient(to right, ${c.color} 0%, ${c.color} ${(score - 1) / 9 * 100}%, #1A1A1A ${(score - 1) / 9 * 100}%, #1A1A1A 100%)`
-                        }}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-
-              <button onClick={saveSelfScores} disabled={savingScores} className="btn-ghost flex items-center gap-2 text-sm">
-                <RotateCcw className="w-4 h-4" />
-                {savingScores ? 'MISE À JOUR...' : 'METTRE À JOUR MON NIVEAU'}
-              </button>
-            </div>
-
-            {/* Questionnaire ELO */}
-            <div className="card-dark p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-1 h-4 rounded-full" style={{ background: '#FFB800' }} />
-                <h3 className="font-display text-base text-white">QUESTIONNAIRE ELO</h3>
-              </div>
-              <p className="text-xs text-[#555] mb-4 leading-relaxed">
-                Refais les 10 questions pour recalculer ton ELO de base. Ton historique de matchs sera préservé.
-              </p>
-
-              {(profile.elo_base != null) && (
-                <div className="flex items-center justify-between mb-4 p-3 rounded-xl" style={{ background: '#0F0F0F', border: '1px solid #1A1A1A' }}>
-                  <div className="text-center">
-                    <p className="text-[10px] text-[#555] font-display tracking-wider">BASE</p>
-                    <p className="font-display text-xl text-white">{profile.elo_base}</p>
-                  </div>
-                  <span className="font-display text-lg text-[#333]">+</span>
-                  <div className="text-center">
-                    <p className="text-[10px] text-[#555] font-display tracking-wider">MATCHS</p>
-                    <p className="font-display text-xl" style={{ color: (profile.elo_gain ?? 0) >= 0 ? 'var(--lime)' : '#EF4444' }}>
-                      {(profile.elo_gain ?? 0) >= 0 ? '+' : ''}{profile.elo_gain ?? 0}
-                    </p>
-                  </div>
-                  <span className="font-display text-lg text-[#333]">=</span>
-                  <div className="text-center">
-                    <p className="text-[10px] text-[#555] font-display tracking-wider">TOTAL</p>
-                    <p className="font-display text-xl text-white">{profile.elo}</p>
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={handleRedoQuestionnaire}
-                className="btn-ghost flex items-center gap-2 text-sm"
-                style={{ color: '#FFB800', borderColor: 'rgba(255,184,0,0.3)' }}
-              >
-                <RotateCcw className="w-4 h-4" />
-                REFAIRE LE QUESTIONNAIRE
-              </button>
             </div>
 
             {/* Déconnexion */}

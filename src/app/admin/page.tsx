@@ -73,6 +73,7 @@ function getEloTier(elo: number): { label: string; color: string } {
 function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: () => void }) {
   const tier = getEloTier(player.elo)
   const answers = player.v2_answers as Record<string, number> | null
+  const hasCompletedV2 = player.has_completed_v2_onboarding
 
   return (
     <div
@@ -151,9 +152,10 @@ function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: ()
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
               <h3 className="font-display text-sm text-white">QUESTIONNAIRE V2</h3>
-              {!answers && (
-                <span className="text-[10px] text-[#555] ml-auto">Non complété</span>
-              )}
+              <span className="text-[10px] ml-auto font-display"
+                style={{ color: answers ? 'var(--lime)' : hasCompletedV2 ? '#FFB800' : '#555' }}>
+                {answers ? 'COMPLÉTÉ' : hasCompletedV2 ? 'DONNÉES MANQUANTES' : 'NON COMPLÉTÉ'}
+              </span>
             </div>
 
             {answers ? (
@@ -182,6 +184,11 @@ function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: ()
                     </div>
                   )
                 })}
+              </div>
+            ) : hasCompletedV2 ? (
+              <div className="card-dark p-4 text-center">
+                <p className="text-xs text-[#555]">Questionnaire complété mais les réponses n'ont pas été enregistrées.</p>
+                <p className="text-[10px] text-[#444] mt-1">Le joueur doit refaire le questionnaire depuis son profil.</p>
               </div>
             ) : (
               <div className="card-dark p-4 text-center">

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useParams, useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1039,7 +1040,7 @@ export default function LivePage() {
     const supabase = createClient() as any;
 
     // 1. Mettre à jour le match (score + statut + durée)
-    await supabase
+    const { error: matchError } = await supabase
       .from('matches')
       .update({
         score_equipe_a: scoreA,
@@ -1049,12 +1050,18 @@ export default function LivePage() {
       })
       .eq('id', matchId);
 
+    if (matchError) {
+      toast.error('Erreur sauvegarde match : ' + matchError.message);
+      setIsSyncing(false);
+      return;
+    }
+
     // 2. Supprimer les buts existants (re-sync idempotent)
     await supabase.from('match_goals').delete().eq('match_id', matchId);
 
     // 3. Insérer tous les buts
     if (events.length > 0) {
-      await supabase.from('match_goals').insert(
+      const { error: goalsError } = await supabase.from('match_goals').insert(
         events.map((evt, i) => ({
           match_id: matchId,
           scorer_id: evt.is_own_goal ? null : evt.scorer?.id ?? null,
@@ -1065,6 +1072,12 @@ export default function LivePage() {
           is_own_goal: evt.is_own_goal,
         }))
       );
+
+      if (goalsError) {
+        toast.error('Erreur sauvegarde buts : ' + goalsError.message);
+        setIsSyncing(false);
+        return;
+      }
     }
 
     // 4. Incrémenter own_goals pour les joueurs fautifs de CSC
