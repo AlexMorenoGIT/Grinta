@@ -19,7 +19,7 @@ type MatchRow = Match & { match_players: MatchPlayer[] }
 const V2_QUESTIONS = [
   {
     id: 'q1', label: 'Passé sportif',
-    options: ['Jamais de club', 'Club poussin/benjamin', 'Club Senior (District)', 'Ligue ou National'],
+    options: ['Jamais de club', 'Club poussin/benjamin', 'Club Senior (District)', 'Régional', 'National ou plus'],
   },
   {
     id: 'q2', label: 'Cardio (60 min)',
@@ -59,19 +59,11 @@ const V2_QUESTIONS = [
   },
 ]
 
-const OPTION_LABELS = ['A', 'B', 'C', 'D']
-const OPTION_COLORS = ['#9CA3AF', '#60A5FA', '#AAFF00', '#FFB800']
+const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E']
+const OPTION_COLORS = ['#9CA3AF', '#60A5FA', '#AAFF00', '#FFB800', '#FF4444']
 
-function getEloTier(elo: number): { label: string; color: string } {
-  if (elo < 800) return { label: 'DÉBUTANT', color: '#9CA3AF' }
-  if (elo < 1000) return { label: 'INTERMÉD.', color: '#60A5FA' }
-  if (elo < 1200) return { label: 'CONFIRMÉ', color: '#AAFF00' }
-  if (elo < 1400) return { label: 'EXPERT', color: '#FFB800' }
-  return { label: 'ÉLITE', color: '#FF4444' }
-}
 
 function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: () => void }) {
-  const tier = getEloTier(player.elo)
   const answers = player.v2_answers as Record<string, number> | null
   const hasCompletedV2 = player.has_completed_v2_onboarding
 
@@ -102,13 +94,7 @@ function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: ()
               <p className="font-display text-base text-white">
                 {player.first_name} {player.last_name}
               </p>
-              <div className="flex items-center gap-2">
-                <span className="font-display text-sm" style={{ color: tier.color }}>{player.elo}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-display"
-                  style={{ background: `${tier.color}15`, color: tier.color, border: `1px solid ${tier.color}30` }}>
-                  {tier.label}
-                </span>
-              </div>
+              <span className="font-display text-sm" style={{ color: 'var(--lime)' }}>{player.elo} ELO</span>
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center"
@@ -123,7 +109,7 @@ function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: ()
             {[
               { label: 'ELO BASE', value: player.elo_base ?? player.elo, color: 'var(--lime)' },
               { label: 'GAIN MATCHS', value: `${(player.elo_gain ?? 0) >= 0 ? '+' : ''}${player.elo_gain ?? 0}`, color: (player.elo_gain ?? 0) >= 0 ? '#AAFF00' : '#F87171' },
-              { label: 'TOTAL', value: player.elo, color: tier.color },
+              { label: 'TOTAL', value: player.elo, color: 'var(--lime)' },
             ].map(s => (
               <div key={s.label} className="card-dark p-3 text-center">
                 <p className="font-display text-lg" style={{ color: s.color }}>{s.value}</p>
@@ -477,11 +463,6 @@ export default function AdminPage() {
                             <span className="ml-1 text-[9px]" style={{ color: 'var(--lime)' }}>★</span>
                           )}
                         </p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[9px] font-bold" style={{ color: '#AAFF00' }}>T{player.technique_score ?? '—'}</span>
-                          <span className="text-[9px] font-bold" style={{ color: '#3B82F6' }}>P{player.physique_score ?? '—'}</span>
-                          <span className="text-[9px] font-bold" style={{ color: '#A855F7' }}>Ta{player.tactique_score ?? '—'}</span>
-                        </div>
                       </div>
                     </div>
                     <div className="col-span-2 text-right">

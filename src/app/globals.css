@@ -227,7 +227,7 @@
   color: oklch(0.97 0 0) !important;
   font-family: 'DM Sans', sans-serif !important;
   font-size: 15px !important;
-  padding: 10px 14px !important;
+  padding: 10px 14px;
   width: 100%;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   outline: none !important;

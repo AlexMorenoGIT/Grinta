@@ -17,7 +17,8 @@ const QUESTIONS = [
       { label: 'A', text: 'Jamais fait de club (Foot de rue/city uniquement).', score: 1 },
       { label: 'B', text: 'Club en poussin/benjamin.', score: 2 },
       { label: 'C', text: 'Club jusqu\'en Senior (Niveau District).', score: 3 },
-      { label: 'D', text: 'Niveau Ligue ou National (actuel ou passé).', score: 4 },
+      { label: 'D', text: 'Niveau Régional (actuel ou passé).', score: 4 },
+      { label: 'E', text: 'Niveau National ou plus (actuel ou passé).', score: 5 },
     ],
   },
   {
@@ -127,15 +128,8 @@ function calcEloBase(scoreTotal: number): number {
   return Math.max(600, Math.min(1500, Math.floor(600 + scoreTotal * 22.5)))
 }
 
-function getEloTier(elo: number): { label: string; color: string } {
-  if (elo < 800) return { label: 'DÉBUTANT', color: '#9CA3AF' }
-  if (elo < 1000) return { label: 'INTERMÉD.', color: '#60A5FA' }
-  if (elo < 1200) return { label: 'CONFIRMÉ', color: '#AAFF00' }
-  if (elo < 1400) return { label: 'EXPERT', color: '#FFB800' }
-  return { label: 'ÉLITE', color: '#FF4444' }
-}
 
-const OPTION_COLORS = ['#9CA3AF', '#60A5FA', '#AAFF00', '#FFB800']
+const OPTION_COLORS = ['#9CA3AF', '#60A5FA', '#AAFF00', '#FFB800', '#FF4444']
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -152,8 +146,6 @@ export default function OnboardingPage() {
   const currentQuestion = step >= 1 && step <= totalQuestions ? QUESTIONS[step - 1] : null
   const scoreTotal = Object.values(answers).reduce((s, v) => s + v, 0)
   const eloBase = calcEloBase(scoreTotal)
-  const tier = getEloTier(eloBase)
-
   const handleAnswer = (questionId: string, score: number) => {
     setAnswers(prev => ({ ...prev, [questionId]: score }))
     setTimeout(() => setStep(s => s + 1), 180)
@@ -227,7 +219,7 @@ export default function OnboardingPage() {
           <div className="space-y-3 mb-8">
             <div className="card-dark p-4">
               <p className="font-display text-sm text-white mb-1">10 QUESTIONS</p>
-              <p className="text-xs text-[#555]">4 réponses possibles (A / B / C / D) — choisis celle qui te correspond le mieux.</p>
+              <p className="text-xs text-[#555]">Choisis la réponse qui te correspond le mieux.</p>
             </div>
             <div className="card-dark p-4">
               <p className="font-display text-sm text-white mb-1">ELO PERSONNALISÉ</p>
@@ -268,13 +260,9 @@ export default function OnboardingPage() {
               border: '1px solid rgba(170,255,0,0.25)',
             }}>
             <p className="font-display-light text-xs text-[#888] tracking-widest mb-2">ELO DE BASE</p>
-            <p className="font-display text-7xl" style={{ color: tier.color }}>{eloBase}</p>
-            <div className="mt-2 inline-block px-3 py-1 rounded-full"
-              style={{ background: `${tier.color}15`, border: `1px solid ${tier.color}40` }}>
-              <p className="font-display text-sm" style={{ color: tier.color }}>{tier.label}</p>
-            </div>
+            <p className="font-display text-7xl" style={{ color: 'var(--lime)' }}>{eloBase}</p>
             <p className="text-xs text-[#555] mt-3">
-              Score total : {scoreTotal}/40 · 600 + ({scoreTotal} × 22.5) = {eloBase}
+              Score total : {scoreTotal}/41 · 600 + ({scoreTotal} × 22.5) = {eloBase}
             </p>
           </div>
 

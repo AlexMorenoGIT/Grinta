@@ -9,13 +9,6 @@ import type { Profile } from '@/types/database'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getEloTier(elo: number) {
-  if (elo >= 1400) return { label: 'ÉLITE', color: '#FF4444', bg: 'rgba(255,68,68,0.12)', border: 'rgba(255,68,68,0.3)', rank: 5 }
-  if (elo >= 1200) return { label: 'EXPERT', color: '#FFB800', bg: 'rgba(255,184,0,0.12)', border: 'rgba(255,184,0,0.3)', rank: 4 }
-  if (elo >= 1000) return { label: 'CONFIRMÉ', color: '#AAFF00', bg: 'rgba(170,255,0,0.12)', border: 'rgba(170,255,0,0.3)', rank: 3 }
-  if (elo >= 800) return { label: 'INTERMÉD.', color: '#60A5FA', bg: 'rgba(96,165,250,0.12)', border: 'rgba(96,165,250,0.3)', rank: 2 }
-  return { label: 'DÉBUTANT', color: '#9CA3AF', bg: 'rgba(156,163,175,0.08)', border: 'rgba(156,163,175,0.2)', rank: 1 }
-}
 
 function getPodiumColor(position: number) {
   if (position === 1) return { color: '#FFD700', glow: 'rgba(255,215,0,0.4)' }
@@ -34,7 +27,7 @@ export default function ClassementPage() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'elite' | 'expert' | 'confirme' | 'inter' | 'debutant'>('all')
+
 
   useEffect(() => {
     const load = async () => {
@@ -53,26 +46,8 @@ export default function ClassementPage() {
     load()
   }, [router, supabase])
 
-  const tierFilters = [
-    { key: 'all', label: 'TOUS', color: '#888' },
-    { key: 'elite', label: 'ÉLITE', color: '#FF4444' },
-    { key: 'expert', label: 'EXPERT', color: '#FFB800' },
-    { key: 'confirme', label: 'CONFIRMÉ', color: '#AAFF00' },
-    { key: 'inter', label: 'INTERMÉD.', color: '#60A5FA' },
-    { key: 'debutant', label: 'DÉBUTANT', color: '#9CA3AF' },
-  ] as const
-
   const filteredPlayers = players.filter(p => {
-    const matchesSearch = !search || `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase())
-    if (!matchesSearch) return false
-    if (filter === 'all') return true
-    const tier = getEloTier(p.elo)
-    if (filter === 'elite') return tier.rank === 5
-    if (filter === 'expert') return tier.rank === 4
-    if (filter === 'confirme') return tier.rank === 3
-    if (filter === 'inter') return tier.rank === 2
-    if (filter === 'debutant') return tier.rank === 1
-    return true
+    return !search || `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase())
   })
 
   // Rang global de l'utilisateur connecté
@@ -131,28 +106,11 @@ export default function ClassementPage() {
           />
         </div>
 
-        {/* Tier filter chips */}
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {tierFilters.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setFilter(t.key)}
-              className="flex-shrink-0 px-3 py-1.5 rounded-full text-[10px] font-display font-bold tracking-wider transition-all"
-              style={{
-                background: filter === t.key ? `${t.color}20` : '#111',
-                border: `1px solid ${filter === t.key ? t.color : '#1E1E1E'}`,
-                color: filter === t.key ? t.color : '#444',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="px-5 pb-32 space-y-4">
         {/* Ma position (si présent dans le classement et pas dans le top visible) */}
-        {currentUser && myRank > 0 && filter === 'all' && !search && (
+        {currentUser && myRank > 0 && !search && (
           <div className="rounded-xl p-3 flex items-center gap-3"
             style={{ background: 'rgba(170,255,0,0.05)', border: '1px solid rgba(170,255,0,0.15)' }}>
             <Zap className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--lime)' }} />
@@ -168,7 +126,7 @@ export default function ClassementPage() {
         )}
 
         {/* Podium top 3 (visible uniquement sans filtre/recherche) */}
-        {filter === 'all' && !search && top3.length >= 3 && (
+        {!search && top3.length >= 3 && (
           <div className="mb-2">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
@@ -178,7 +136,6 @@ export default function ClassementPage() {
               {/* 2ème */}
               {top3[1] && (() => {
                 const podium = getPodiumColor(2)
-                const tier = getEloTier(top3[1].elo)
                 return (
                   <div className="flex flex-col items-center gap-2 flex-1" style={{ height: '130px', justifyContent: 'flex-end' }}>
                     <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
@@ -189,7 +146,7 @@ export default function ClassementPage() {
                       <p className="text-xs text-white font-semibold leading-tight truncate max-w-20">
                         {top3[1].first_name}
                       </p>
-                      <p className="font-display text-xs" style={{ color: tier.color }}>{top3[1].elo}</p>
+                      <p className="font-display text-xs" style={{ color: 'var(--lime)' }}>{top3[1].elo}</p>
                     </div>
                     <div className="w-full rounded-t-lg flex items-center justify-center"
                       style={{ height: '50px', background: `rgba(192,192,192,0.08)`, border: `1px solid ${podium.color}30`, borderBottom: 'none' }}>
@@ -202,7 +159,6 @@ export default function ClassementPage() {
               {/* 1er */}
               {top3[0] && (() => {
                 const podium = getPodiumColor(1)
-                const tier = getEloTier(top3[0].elo)
                 return (
                   <div className="flex flex-col items-center gap-2 flex-1" style={{ height: '160px', justifyContent: 'flex-end' }}>
                     <Star className="w-4 h-4" style={{ color: podium.color }} />
@@ -214,7 +170,7 @@ export default function ClassementPage() {
                       <p className="text-sm text-white font-semibold leading-tight truncate max-w-24">
                         {top3[0].first_name}
                       </p>
-                      <p className="font-display text-sm" style={{ color: tier.color }}>{top3[0].elo}</p>
+                      <p className="font-display text-sm" style={{ color: 'var(--lime)' }}>{top3[0].elo}</p>
                     </div>
                     <div className="w-full rounded-t-lg flex items-center justify-center"
                       style={{ height: '70px', background: `rgba(255,215,0,0.08)`, border: `1px solid ${podium.color}30`, borderBottom: 'none' }}>
@@ -227,7 +183,6 @@ export default function ClassementPage() {
               {/* 3ème */}
               {top3[2] && (() => {
                 const podium = getPodiumColor(3)
-                const tier = getEloTier(top3[2].elo)
                 return (
                   <div className="flex flex-col items-center gap-2 flex-1" style={{ height: '110px', justifyContent: 'flex-end' }}>
                     <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
@@ -238,7 +193,7 @@ export default function ClassementPage() {
                       <p className="text-xs text-white font-semibold leading-tight truncate max-w-20">
                         {top3[2].first_name}
                       </p>
-                      <p className="font-display text-xs" style={{ color: tier.color }}>{top3[2].elo}</p>
+                      <p className="font-display text-xs" style={{ color: 'var(--lime)' }}>{top3[2].elo}</p>
                     </div>
                     <div className="w-full rounded-t-lg flex items-center justify-center"
                       style={{ height: '35px', background: `rgba(205,127,50,0.08)`, border: `1px solid ${podium.color}30`, borderBottom: 'none' }}>
@@ -256,14 +211,13 @@ export default function ClassementPage() {
           <div className="flex items-center gap-2 mb-3">
             <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
             <h2 className="font-display text-sm text-white">
-              {filter === 'all' && !search ? 'CLASSEMENT GÉNÉRAL' : `RÉSULTATS (${filteredPlayers.length})`}
+              {!search ? 'CLASSEMENT GÉNÉRAL' : `RÉSULTATS (${filteredPlayers.length})`}
             </h2>
           </div>
 
           <div className="space-y-2">
             {filteredPlayers.map((player) => {
               const globalRank = players.findIndex(p => p.id === player.id) + 1
-              const tier = getEloTier(player.elo)
               const isMe = player.id === currentUser?.id
               const podiumData = globalRank <= 3 ? getPodiumColor(globalRank) : null
 
@@ -291,9 +245,9 @@ export default function ClassementPage() {
                   <div
                     className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
                     style={{
-                      background: tier.bg,
-                      border: `1.5px solid ${tier.border}`,
-                      color: tier.color,
+                      background: '#1A1A1A',
+                      border: '1.5px solid #2A2A2A',
+                      color: '#888',
                       boxShadow: globalRank === 1 ? `0 0 12px ${getPodiumColor(1).glow}` : 'none',
                     }}
                   >
@@ -322,7 +276,7 @@ export default function ClassementPage() {
 
                   {/* ELO */}
                   <div className="text-right flex-shrink-0">
-                    <p className="font-display text-lg" style={{ color: tier.color }}>{player.elo}</p>
+                    <p className="font-display text-lg" style={{ color: 'var(--lime)' }}>{player.elo}</p>
                     {(player.elo_gain ?? 0) !== 0 && (
                       <p className="text-[10px] font-display" style={{ color: (player.elo_gain ?? 0) > 0 ? '#AAFF00' : '#F87171' }}>
                         {(player.elo_gain ?? 0) > 0 ? '+' : ''}{player.elo_gain}
