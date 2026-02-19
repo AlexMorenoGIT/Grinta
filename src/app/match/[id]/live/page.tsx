@@ -1064,7 +1064,7 @@ export default function LivePage() {
       const { error: goalsError } = await supabase.from('match_goals').insert(
         events.map((evt, i) => ({
           match_id: matchId,
-          scorer_id: evt.is_own_goal ? null : evt.scorer?.id ?? null,
+          scorer_id: evt.is_own_goal ? (evt.ownGoalPlayer?.id ?? null) : (evt.scorer?.id ?? null),
           assist_id: evt.assist?.id ?? null,
           team: evt.team,
           minute: evt.timestamp,
