@@ -248,13 +248,35 @@ export default function AdminPage() {
 
   const resetMatch = async (id: string) => {
     setResetting(id)
+
+    // Supprimer toutes les données liées au match
+    const [ratingsRes, votesRes, goalsRes] = await Promise.all([
+      supabase.from('ratings').delete().eq('match_id', id),
+      supabase.from('mvp_votes').delete().eq('match_id', id),
+      supabase.from('match_goals').delete().eq('match_id', id),
+    ])
+
+    const deleteError = ratingsRes.error || votesRes.error || goalsRes.error
+    if (deleteError) {
+      toast.error('Erreur suppression données : ' + deleteError.message)
+      setResetting(null)
+      return
+    }
+
+    // Remettre le match en état initial
     const { error } = await supabase
       .from('matches')
-      .update({ status: 'upcoming', score_equipe_a: null, score_equipe_b: null })
+      .update({
+        status: 'upcoming',
+        score_equipe_a: null,
+        score_equipe_b: null,
+        duration_seconds: null,
+      })
       .eq('id', id)
+
     if (error) toast.error('Erreur : ' + error.message)
     else {
-      toast.success('Match remis à zéro — joueurs conservés')
+      toast.success('Match remis à zéro — notes, votes et buts effacés')
       await loadData()
     }
     setResetting(null)
