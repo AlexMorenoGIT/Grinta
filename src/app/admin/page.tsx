@@ -222,6 +222,7 @@ export default function AdminPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [resetting, setResetting] = useState<string | null>(null)
+  const [confirmReset, setConfirmReset] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -575,19 +576,42 @@ export default function AdminPage() {
                     </button>
 
                     {match.status !== 'upcoming' && (
-                      <button
-                        onClick={() => resetMatch(match.id)}
-                        disabled={resetting === match.id}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
-                        style={{
-                          background: 'rgba(170,255,0,0.07)',
-                          border: '1px solid rgba(170,255,0,0.2)',
-                          color: resetting === match.id ? '#555' : 'var(--lime)',
-                        }}
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        {resetting === match.id ? '...' : 'RÉINITIALISER'}
-                      </button>
+                      confirmReset === match.id ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setConfirmReset(null); resetMatch(match.id) }}
+                            disabled={resetting === match.id}
+                            className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
+                            style={{
+                              background: 'rgba(170,255,0,0.12)',
+                              border: '1px solid rgba(170,255,0,0.35)',
+                              color: 'var(--lime)',
+                            }}
+                          >
+                            {resetting === match.id ? '...' : '✓ CONFIRMER'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmReset(null)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
+                            style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', color: '#888' }}
+                          >
+                            ANNULER
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmReset(match.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
+                          style={{
+                            background: 'rgba(170,255,0,0.07)',
+                            border: '1px solid rgba(170,255,0,0.2)',
+                            color: 'var(--lime)',
+                          }}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          RÉINITIALISER
+                        </button>
+                      )
                     )}
 
                     {confirmDelete === match.id ? (
