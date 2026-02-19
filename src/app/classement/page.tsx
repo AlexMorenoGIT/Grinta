@@ -102,7 +102,7 @@ export default function ClassementPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Rechercher un joueur..."
-            className="input-dark pl-10"
+            className="input-dark" style={{ paddingLeft: 40 }}
           />
         </div>
 

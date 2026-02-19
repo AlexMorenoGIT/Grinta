@@ -404,7 +404,7 @@ export default function AdminPage() {
                 value={playerSearch}
                 onChange={e => setPlayerSearch(e.target.value)}
                 placeholder="Rechercher un joueur..."
-                className="input-dark pl-10"
+                className="input-dark" style={{ paddingLeft: 40 }}
               />
             </div>
 
@@ -497,7 +497,7 @@ export default function AdminPage() {
                 value={matchSearch}
                 onChange={e => setMatchSearch(e.target.value)}
                 placeholder="Rechercher un match..."
-                className="input-dark pl-10"
+                className="input-dark" style={{ paddingLeft: 40 }}
               />
             </div>
 

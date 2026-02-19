@@ -104,7 +104,7 @@ export default function HomePage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Rechercher un match..."
-            className="input-dark pl-10"
+            className="input-dark" style={{ paddingLeft: 40 }}
           />
         </div>
 
