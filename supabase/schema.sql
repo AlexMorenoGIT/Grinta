@@ -15,6 +15,8 @@ create table public.profiles (
   username text unique,
   avatar_url text,
   elo int not null default 1000,
+  elo_base int not null default 1000,  -- ELO défini par le questionnaire
+  elo_gain int not null default 0,     -- Points accumulés (matchs + MVP). elo = elo_base + elo_gain
   technique_score int check (technique_score between 1 and 10),
   physique_score int check (physique_score between 1 and 10),
   tactique_score int check (tactique_score between 1 and 10),
@@ -23,8 +25,10 @@ create table public.profiles (
   wins int not null default 0,
   losses int not null default 0,
   draws int not null default 0,
+  own_goals int not null default 0,    -- Nombre de CSC commis
   avg_rating numeric(4,2) default null,
   onboarding_completed boolean not null default false,
+  has_completed_v2_onboarding boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

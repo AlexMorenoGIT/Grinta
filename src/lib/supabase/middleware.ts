@@ -48,11 +48,11 @@ export async function updateSession(request: NextRequest) {
   if (user && !isOnboarding && !isPublic) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('onboarding_completed, is_admin')
+      .select('onboarding_completed, has_completed_v2_onboarding, is_admin')
       .eq('id', user.id)
       .single()
 
-    if (profile && !profile.onboarding_completed) {
+    if (profile && (!profile.onboarding_completed || !profile.has_completed_v2_onboarding)) {
       const url = request.nextUrl.clone()
       url.pathname = '/onboarding'
       return NextResponse.redirect(url)

@@ -16,10 +16,12 @@ interface Player {
 
 interface GoalEvent {
   id: string;
-  team: 'A' | 'B';
-  scorer: Player;
+  team: 'A' | 'B'; // équipe qui marque (bénéficiaire)
+  scorer: Player | null; // null si CSC
+  ownGoalPlayer: Player | null; // joueur fautif si CSC
   assist: Player | null;
   timestamp: number; // seconds
+  is_own_goal: boolean;
 }
 
 type GameState = 'LOADING' | 'PRE' | 'LIVE' | 'POST';
@@ -163,12 +165,153 @@ function TeamPreviewBlock({ team, players }: { team: 'A' | 'B'; players: Player[
   );
 }
 
+function CscSelectOverlay({
+  faultTeam,
+  players,
+  onPlayerClick,
+  onClose,
+}: {
+  faultTeam: 'A' | 'B';
+  players: Player[];
+  onPlayerClick: (p: Player) => void;
+  onClose: () => void;
+}) {
+  const color = faultTeam === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR;
+  const rgb = faultTeam === 'A' ? TEAM_A_RGB : TEAM_B_RGB;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(4,4,4,0.92)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        animation: 'fadeIn 0.15s ease',
+      }}
+    >
+      <div
+        style={{
+          background: '#0E0E0E',
+          border: `1px solid rgba(${rgb},0.25)`,
+          borderRadius: '16px',
+          padding: '24px',
+          width: 'min(520px, 55vw)',
+          maxHeight: '85vh',
+          overflow: 'auto',
+          boxShadow: `0 0 60px rgba(${rgb},0.1)`,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+          <div>
+            <div style={{ ...DISPLAY, fontSize: '11px', color: '#444', letterSpacing: '0.16em', marginBottom: '6px' }}>
+              ÉQUIPE {faultTeam} · CONTRE SON CAMP
+            </div>
+            <div style={{ ...DISPLAY, fontSize: 'clamp(18px, 2.5vw, 24px)', color, letterSpacing: '0.04em' }}>
+              🥅 CSC — JOUEUR FAUTIF
+            </div>
+            <div style={{ fontSize: '13px', color: '#555', marginTop: '4px' }}>
+              Sélectionne le joueur de l'équipe {faultTeam} ayant marqué contre son camp.
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'transparent',
+              border: '1px solid #2A2A2A',
+              borderRadius: '8px',
+              color: '#555',
+              width: 36,
+              height: 36,
+              cursor: 'pointer',
+              fontSize: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {players.length === 0 ? (
+          <div style={{ color: '#333', fontSize: '14px', padding: '16px 0' }}>
+            Aucun joueur assigné à cette équipe.
+          </div>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
+              gap: '10px',
+            }}
+          >
+            {players.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPlayerClick(p)}
+                style={{
+                  background: `rgba(${rgb},0.07)`,
+                  border: `1.5px solid rgba(${rgb},0.2)`,
+                  borderRadius: '12px',
+                  padding: '14px 8px 12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.15s ease',
+                }}
+                onPointerEnter={(e) => {
+                  e.currentTarget.style.background = `rgba(${rgb},0.14)`;
+                  e.currentTarget.style.borderColor = color;
+                }}
+                onPointerLeave={(e) => {
+                  e.currentTarget.style.background = `rgba(${rgb},0.07)`;
+                  e.currentTarget.style.borderColor = `rgba(${rgb},0.2)`;
+                }}
+              >
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: '50%',
+                    background: `rgba(${rgb},0.15)`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    ...DISPLAY,
+                    fontSize: '17px',
+                    color,
+                  }}
+                >
+                  {initials(p)}
+                </div>
+                <div style={{ fontSize: '11px', color: '#888', textAlign: 'center', lineHeight: 1.3, fontWeight: 500 }}>
+                  {p.first_name}
+                  <br />
+                  <span style={{ fontWeight: 700 }}>{p.last_name}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TeamZone({
   id,
   team,
   players,
   score,
   onGoal,
+  onCsc,
   onRemove,
   flashGoal,
 }: {
@@ -177,6 +320,7 @@ function TeamZone({
   players: Player[];
   score: number;
   onGoal: () => void;
+  onCsc: () => void;
   onRemove: () => void;
   flashGoal: boolean;
 }) {
@@ -283,9 +427,10 @@ function TeamZone({
         style={{
           display: 'flex',
           flexDirection: 'row',
-          gap: '8px',
+          gap: '6px',
           alignItems: 'center',
           justifyContent: 'center',
+          flexWrap: 'wrap',
         }}
       >
         <button
@@ -296,12 +441,12 @@ function TeamZone({
             borderRadius: '10px',
             color: '#000',
             ...DISPLAY,
-            fontSize: 'clamp(13px, 1.4vw, 17px)',
+            fontSize: 'clamp(12px, 1.3vw, 16px)',
             letterSpacing: '0.06em',
-            padding: '10px 18px',
+            padding: '10px 14px',
             cursor: 'pointer',
             flex: 1,
-            maxWidth: '160px',
+            maxWidth: '140px',
             transition: 'opacity 0.15s, transform 0.1s',
             WebkitTapHighlightColor: 'transparent',
           }}
@@ -310,6 +455,27 @@ function TeamZone({
           onPointerLeave={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
         >
           + MARQUER
+        </button>
+        <button
+          onClick={onCsc}
+          style={{
+            background: 'rgba(255,100,0,0.08)',
+            border: '1px solid rgba(255,100,0,0.3)',
+            borderRadius: '8px',
+            color: '#FF6400',
+            ...DISPLAY,
+            fontSize: 'clamp(11px, 1.1vw, 14px)',
+            letterSpacing: '0.06em',
+            padding: '10px 10px',
+            cursor: 'pointer',
+            transition: 'border-color 0.15s, background 0.15s',
+            WebkitTapHighlightColor: 'transparent',
+          }}
+          onPointerDown={(e) => ((e.currentTarget.style.transform = 'scale(0.96)'))}
+          onPointerUp={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
+          onPointerLeave={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
+        >
+          CSC
         </button>
         <button
           onClick={onRemove}
@@ -322,7 +488,7 @@ function TeamZone({
             ...DISPLAY,
             fontSize: '13px',
             letterSpacing: '0.04em',
-            padding: '10px 14px',
+            padding: '10px 10px',
             cursor: score === 0 ? 'not-allowed' : 'pointer',
             transition: 'border-color 0.15s, color 0.15s',
           }}
@@ -602,6 +768,10 @@ export default function LivePage() {
   const [selStep, setSelStep] = useState<SelectionStep>('SCORER');
   const [pendingScorer, setPendingScorer] = useState<Player | null>(null);
 
+  // ── CSC state
+  const [showCscSelect, setShowCscSelect] = useState(false);
+  const [cscFaultTeam, setCscFaultTeam] = useState<'A' | 'B'>('A'); // équipe du joueur fautif
+
   // ── End match confirmation modal
   const [showEndConfirm, setShowEndConfirm] = useState(false);
 
@@ -687,6 +857,36 @@ export default function LivePage() {
     setShowSelect(true);
   }, []);
 
+  const openCscSelector = useCallback((faultTeam: 'A' | 'B') => {
+    setCscFaultTeam(faultTeam);
+    setShowCscSelect(true);
+  }, []);
+
+  const confirmCsc = useCallback((faultPlayer: Player) => {
+    // L'équipe bénéficiaire est l'opposée du fautif
+    const benefitTeam: 'A' | 'B' = cscFaultTeam === 'A' ? 'B' : 'A';
+    const evt: GoalEvent = {
+      id: Math.random().toString(36).slice(2),
+      team: benefitTeam,
+      scorer: null,
+      ownGoalPlayer: faultPlayer,
+      assist: null,
+      timestamp: timeRef.current,
+      is_own_goal: true,
+    };
+    setEvents((prev) => [...prev, evt]);
+    if (benefitTeam === 'A') {
+      setScoreA((s) => s + 1);
+      setFlashA(true);
+      setTimeout(() => setFlashA(false), 800);
+    } else {
+      setScoreB((s) => s + 1);
+      setFlashB(true);
+      setTimeout(() => setFlashB(false), 800);
+    }
+    setShowCscSelect(false);
+  }, [cscFaultTeam]);
+
   const handlePlayerClick = useCallback(
     (player: Player) => {
       if (selStep === 'SCORER') {
@@ -706,8 +906,10 @@ export default function LivePage() {
         id: Math.random().toString(36).slice(2),
         team: selectTeam,
         scorer,
+        ownGoalPlayer: null,
         assist,
         timestamp: timeRef.current,
+        is_own_goal: false,
       };
       setEvents((prev) => [...prev, evt]);
       if (selectTeam === 'A') {
@@ -769,13 +971,20 @@ export default function LivePage() {
       await supabase.from('match_goals').insert(
         events.map((evt, i) => ({
           match_id: matchId,
-          scorer_id: evt.scorer.id,
+          scorer_id: evt.is_own_goal ? null : evt.scorer?.id ?? null,
           assist_id: evt.assist?.id ?? null,
           team: evt.team,
           minute: evt.timestamp,
           goal_order: i + 1,
+          is_own_goal: evt.is_own_goal,
         }))
       );
+    }
+
+    // 4. Incrémenter own_goals pour les joueurs fautifs de CSC
+    const cscEvents = events.filter((e) => e.is_own_goal && e.ownGoalPlayer);
+    for (const cscEvt of cscEvents) {
+      await supabase.rpc('increment_own_goals', { player_id: cscEvt.ownGoalPlayer!.id });
     }
 
     setIsSyncing(false);
@@ -786,6 +995,7 @@ export default function LivePage() {
 
   const scorerMap = events.reduce(
     (acc: Record<string, { player: Player; goals: number }>, e) => {
+      if (e.is_own_goal || !e.scorer) return acc; // exclure les CSC
       if (!acc[e.scorer.id]) acc[e.scorer.id] = { player: e.scorer, goals: 0 };
       acc[e.scorer.id].goals++;
       return acc;
@@ -1131,27 +1341,38 @@ export default function LivePage() {
                       width: 36,
                       height: 36,
                       borderRadius: '50%',
-                      background:
-                        evt.team === 'A' ? `rgba(${TEAM_A_RGB},0.15)` : `rgba(${TEAM_B_RGB},0.15)`,
-                      border: `2px solid ${evt.team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR}`,
+                      background: evt.is_own_goal
+                        ? 'rgba(255,100,0,0.15)'
+                        : evt.team === 'A' ? `rgba(${TEAM_A_RGB},0.15)` : `rgba(${TEAM_B_RGB},0.15)`,
+                      border: `2px solid ${evt.is_own_goal ? '#FF6400' : evt.team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR}`,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       ...DISPLAY,
                       fontSize: '13px',
-                      color: evt.team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR,
+                      color: evt.is_own_goal ? '#FF6400' : evt.team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR,
                     }}
                   >
-                    {initials(evt.scorer)}
+                    {evt.is_own_goal ? '🥅' : (evt.scorer ? initials(evt.scorer) : '?')}
                   </div>
                   <div style={{ fontSize: '10px', color: '#666', textAlign: 'center', lineHeight: 1.2 }}>
-                    {evt.scorer.first_name[0]}. {evt.scorer.last_name}
-                    {evt.assist && (
+                    {evt.is_own_goal && evt.ownGoalPlayer ? (
                       <>
+                        <span style={{ color: '#FF6400' }}>CSC</span>
                         <br />
-                        <span style={{ color: '#444' }}>
-                          → {evt.assist.first_name[0]}. {evt.assist.last_name}
-                        </span>
+                        {evt.ownGoalPlayer.first_name[0]}. {evt.ownGoalPlayer.last_name}
+                      </>
+                    ) : (
+                      <>
+                        {evt.scorer?.first_name[0]}. {evt.scorer?.last_name}
+                        {evt.assist && (
+                          <>
+                            <br />
+                            <span style={{ color: '#444' }}>
+                              → {evt.assist.first_name[0]}. {evt.assist.last_name}
+                            </span>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -1381,7 +1602,7 @@ export default function LivePage() {
         </div>
       )}
 
-      {/* Player selection overlay */}
+      {/* Player selection overlay (buts normaux) */}
       {showSelect && (
         <PlayerSelectOverlay
           team={selectTeam}
@@ -1391,6 +1612,16 @@ export default function LivePage() {
           onPlayerClick={handlePlayerClick}
           onSkipAssist={() => confirmGoal(pendingScorer!, null)}
           onClose={() => setShowSelect(false)}
+        />
+      )}
+
+      {/* CSC selection overlay */}
+      {showCscSelect && (
+        <CscSelectOverlay
+          faultTeam={cscFaultTeam}
+          players={cscFaultTeam === 'A' ? teamA : teamB}
+          onPlayerClick={confirmCsc}
+          onClose={() => setShowCscSelect(false)}
         />
       )}
 
@@ -1474,6 +1705,7 @@ export default function LivePage() {
           players={teamA}
           score={scoreA}
           onGoal={() => openGoalSelector('A')}
+          onCsc={() => openCscSelector('A')}
           onRemove={() => removeLastGoal('A')}
           flashGoal={flashA}
         />
@@ -1592,6 +1824,7 @@ export default function LivePage() {
           players={teamB}
           score={scoreB}
           onGoal={() => openGoalSelector('B')}
+          onCsc={() => openCscSelector('B')}
           onRemove={() => removeLastGoal('B')}
           flashGoal={flashB}
         />
@@ -1637,20 +1870,33 @@ export default function LivePage() {
             >
               {i > 0 && <span style={{ color: '#222', fontSize: '11px', margin: '0 4px' }}>│</span>}
               <span style={{ ...DISPLAY, fontSize: '10px', color: '#444' }}>{fmt(evt.timestamp)}</span>
-              <span style={{ fontSize: '11px' }}>⚽</span>
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: evt.team === 'A' ? '#60A5FA' : '#F87171',
-                  fontWeight: 600,
-                }}
-              >
-                {evt.scorer.first_name} {evt.scorer.last_name[0]}.
-              </span>
-              {evt.assist && (
-                <span style={{ fontSize: '11px', color: '#444' }}>
-                  → {evt.assist.first_name} {evt.assist.last_name[0]}.
-                </span>
+              <span style={{ fontSize: '11px' }}>{evt.is_own_goal ? '🥅' : '⚽'}</span>
+              {evt.is_own_goal && evt.ownGoalPlayer ? (
+                <>
+                  <span style={{ fontSize: '11px', color: '#FF6400', fontWeight: 600 }}>
+                    CSC {evt.ownGoalPlayer.first_name} {evt.ownGoalPlayer.last_name[0]}.
+                  </span>
+                  <span style={{ fontSize: '10px', color: '#555' }}>
+                    (Éq.{evt.team === 'A' ? 'B' : 'A'} → Éq.{evt.team})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      color: evt.team === 'A' ? '#60A5FA' : '#F87171',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {evt.scorer?.first_name} {evt.scorer?.last_name[0]}.
+                  </span>
+                  {evt.assist && (
+                    <span style={{ fontSize: '11px', color: '#444' }}>
+                      → {evt.assist.first_name} {evt.assist.last_name[0]}.
+                    </span>
+                  )}
+                </>
               )}
               <div
                 style={{
