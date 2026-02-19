@@ -185,13 +185,8 @@ export default function ProfilPage() {
     if (!profile) return
     setSavingScores(true)
 
-    const avg = (selfScores.technique_score + selfScores.physique_score + selfScores.tactique_score) / 3
-    const newElo = Math.floor(avg * 100 + 500)
-
-    const { error } = await supabase.from('profiles').update({
-      ...selfScores,
-      elo: newElo,
-    }).eq('id', profile.id)
+    // V2: ELO = elo_base (questionnaire) + elo_gain (matchs). Les sliders n'impactent plus l'ELO.
+    const { error } = await supabase.from('profiles').update(selfScores).eq('id', profile.id)
 
     if (error) toast.error('Erreur')
     else {
@@ -199,6 +194,12 @@ export default function ProfilPage() {
       await loadData()
     }
     setSavingScores(false)
+  }
+
+  const handleRedoQuestionnaire = async () => {
+    if (!profile) return
+    await supabase.from('profiles').update({ has_completed_v2_onboarding: false }).eq('id', profile.id)
+    router.push('/onboarding')
   }
 
   const handleLogout = async () => {
@@ -554,6 +555,47 @@ export default function ProfilPage() {
               <button onClick={saveSelfScores} disabled={savingScores} className="btn-ghost flex items-center gap-2 text-sm">
                 <RotateCcw className="w-4 h-4" />
                 {savingScores ? 'MISE À JOUR...' : 'METTRE À JOUR MON NIVEAU'}
+              </button>
+            </div>
+
+            {/* Questionnaire ELO */}
+            <div className="card-dark p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-1 h-4 rounded-full" style={{ background: '#FFB800' }} />
+                <h3 className="font-display text-base text-white">QUESTIONNAIRE ELO</h3>
+              </div>
+              <p className="text-xs text-[#555] mb-4 leading-relaxed">
+                Refais les 10 questions pour recalculer ton ELO de base. Ton historique de matchs sera préservé.
+              </p>
+
+              {(profile.elo_base != null) && (
+                <div className="flex items-center justify-between mb-4 p-3 rounded-xl" style={{ background: '#0F0F0F', border: '1px solid #1A1A1A' }}>
+                  <div className="text-center">
+                    <p className="text-[10px] text-[#555] font-display tracking-wider">BASE</p>
+                    <p className="font-display text-xl text-white">{profile.elo_base}</p>
+                  </div>
+                  <span className="font-display text-lg text-[#333]">+</span>
+                  <div className="text-center">
+                    <p className="text-[10px] text-[#555] font-display tracking-wider">MATCHS</p>
+                    <p className="font-display text-xl" style={{ color: (profile.elo_gain ?? 0) >= 0 ? 'var(--lime)' : '#EF4444' }}>
+                      {(profile.elo_gain ?? 0) >= 0 ? '+' : ''}{profile.elo_gain ?? 0}
+                    </p>
+                  </div>
+                  <span className="font-display text-lg text-[#333]">=</span>
+                  <div className="text-center">
+                    <p className="text-[10px] text-[#555] font-display tracking-wider">TOTAL</p>
+                    <p className="font-display text-xl text-white">{profile.elo}</p>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleRedoQuestionnaire}
+                className="btn-ghost flex items-center gap-2 text-sm"
+                style={{ color: '#FFB800', borderColor: 'rgba(255,184,0,0.3)' }}
+              >
+                <RotateCcw className="w-4 h-4" />
+                REFAIRE LE QUESTIONNAIRE
               </button>
             </div>
 

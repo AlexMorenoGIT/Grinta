@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, User, Plus, Shield } from 'lucide-react'
+import { Home, User, Plus, Shield, Trophy } from 'lucide-react'
 
 function NavItem({ href, icon: Icon, label }: { href: string; icon: React.ElementType; label: string }) {
   const pathname = usePathname()
@@ -47,6 +47,7 @@ export function BottomNav({
         {/* Left group */}
         <div className="flex flex-1 justify-around items-center">
           <NavItem href="/home" icon={Home} label="Accueil" />
+          <NavItem href="/classement" icon={Trophy} label="Classement" />
         </div>
 
         {/* FAB — sits between the two groups */}

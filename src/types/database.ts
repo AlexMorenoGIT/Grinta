@@ -17,6 +17,8 @@ export interface Database {
           username: string | null
           avatar_url: string | null
           elo: number
+          elo_base: number
+          elo_gain: number
           technique_score: number | null
           physique_score: number | null
           tactique_score: number | null
@@ -25,8 +27,11 @@ export interface Database {
           wins: number
           losses: number
           draws: number
+          own_goals: number
           avg_rating: number | null
           onboarding_completed: boolean
+          has_completed_v2_onboarding: boolean
+          v2_answers: Record<string, number> | null
           is_admin: boolean
           wero_phone: string | null
           rib: string | null
@@ -40,6 +45,8 @@ export interface Database {
           username?: string | null
           avatar_url?: string | null
           elo?: number
+          elo_base?: number
+          elo_gain?: number
           technique_score?: number | null
           physique_score?: number | null
           tactique_score?: number | null
@@ -48,8 +55,11 @@ export interface Database {
           wins?: number
           losses?: number
           draws?: number
+          own_goals?: number
           avg_rating?: number | null
           onboarding_completed?: boolean
+          has_completed_v2_onboarding?: boolean
+          v2_answers?: Record<string, number> | null
           is_admin?: boolean
           wero_phone?: string | null
           rib?: string | null
@@ -62,6 +72,8 @@ export interface Database {
           username?: string | null
           avatar_url?: string | null
           elo?: number
+          elo_base?: number
+          elo_gain?: number
           technique_score?: number | null
           physique_score?: number | null
           tactique_score?: number | null
@@ -70,8 +82,11 @@ export interface Database {
           wins?: number
           losses?: number
           draws?: number
+          own_goals?: number
           avg_rating?: number | null
           onboarding_completed?: boolean
+          has_completed_v2_onboarding?: boolean
+          v2_answers?: Record<string, number> | null
           is_admin?: boolean
           wero_phone?: string | null
           rib?: string | null
@@ -216,21 +231,23 @@ export interface Database {
         Row: {
           id: string
           match_id: string
-          scorer_id: string
+          scorer_id: string | null
           assist_id: string | null
           team: 'A' | 'B'
           minute: number
           goal_order: number
+          is_own_goal: boolean
           created_at: string
         }
         Insert: {
           id?: string
           match_id: string
-          scorer_id: string
+          scorer_id?: string | null
           assist_id?: string | null
           team: 'A' | 'B'
           minute: number
           goal_order: number
+          is_own_goal?: boolean
         }
         Update: Record<string, never>
       }

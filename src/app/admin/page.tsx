@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import {
   ArrowLeft, Search, Trash2, Edit3, Users, Zap, Calendar,
-  MapPin, ChevronUp, ChevronDown, Shield, RotateCcw
+  MapPin, ChevronUp, ChevronDown, Shield, RotateCcw, X
 } from 'lucide-react'
 import { EditMatchModal } from '@/components/grinta/EditMatchModal'
 import type { Profile, Match, MatchPlayer } from '@/types/database'
@@ -15,12 +15,193 @@ import type { Profile, Match, MatchPlayer } from '@/types/database'
 type PlayerRow = Profile & { match_count?: number }
 type MatchRow = Match & { match_players: MatchPlayer[] }
 
+// ─── Questions V2 (pour affichage admin) ────────────────────────────────────
+const V2_QUESTIONS = [
+  {
+    id: 'q1', label: 'Passé sportif',
+    options: ['Jamais de club', 'Club poussin/benjamin', 'Club Senior (District)', 'Ligue ou National'],
+  },
+  {
+    id: 'q2', label: 'Cardio (60 min)',
+    options: ['Cuit après 15 min', 'Gère mais finit dans le dur', 'Répète les courses', 'Enchaîne 2 matchs'],
+  },
+  {
+    id: 'q3', label: 'Technique de balle',
+    options: ['Contrôles approximatifs', 'Propres à l\'arrêt', 'Contrôle en mouvement', 'Pied-main maîtrisé'],
+  },
+  {
+    id: 'q4', label: 'Pied faible',
+    options: ['Sert à monter dans le bus', 'Passe courte sans pression', 'Centre/tir possible', 'Ambidextre'],
+  },
+  {
+    id: 'q5', label: 'Vista (vision)',
+    options: ['Regarde ses pieds', 'Coéquipier le plus proche', 'Passe qui casse les lignes', 'Dicte le jeu'],
+  },
+  {
+    id: 'q6', label: 'Impact physique',
+    options: ['Évite les contacts', 'Subit les costauds', 'Solide sur ses appuis', 'Gagne 90% des duels'],
+  },
+  {
+    id: 'q7', label: 'Réaction sous pression',
+    options: ['Panique, dégage', 'S\'appuie sur le GK', 'Trouve une sortie propre', 'Élimine son vis-à-vis'],
+  },
+  {
+    id: 'q8', label: 'Repli défensif',
+    options: ['Reste devant', 'Revient si proche', 'Revient toujours', 'Premier à presser'],
+  },
+  {
+    id: 'q9', label: 'Finition',
+    options: ['Tire fort et espère', 'Cadre la plupart', 'Choisit son côté', 'Sang-froid total'],
+  },
+  {
+    id: 'q10', label: 'Intelligence tactique',
+    options: ['Court partout', 'Reste à son poste', 'Compense les trous', 'Dirige et gère transitions'],
+  },
+]
+
+const OPTION_LABELS = ['A', 'B', 'C', 'D']
+const OPTION_COLORS = ['#9CA3AF', '#60A5FA', '#AAFF00', '#FFB800']
+
+function getEloTier(elo: number): { label: string; color: string } {
+  if (elo < 800) return { label: 'DÉBUTANT', color: '#9CA3AF' }
+  if (elo < 1000) return { label: 'INTERMÉD.', color: '#60A5FA' }
+  if (elo < 1200) return { label: 'CONFIRMÉ', color: '#AAFF00' }
+  if (elo < 1400) return { label: 'EXPERT', color: '#FFB800' }
+  return { label: 'ÉLITE', color: '#FF4444' }
+}
+
+function PlayerDetailModal({ player, onClose }: { player: PlayerRow; onClose: () => void }) {
+  const tier = getEloTier(player.elo)
+  const answers = player.v2_answers as Record<string, number> | null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl overflow-y-auto"
+        style={{ background: '#0E0E0E', border: '1px solid #1E1E1E', maxHeight: '90vh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b border-[#1A1A1A]"
+          style={{ background: '#0E0E0E' }}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+              style={{
+                background: player.is_admin ? 'rgba(170,255,0,0.15)' : '#1A1A1A',
+                color: player.is_admin ? 'var(--lime)' : '#888',
+                border: `1px solid ${player.is_admin ? 'rgba(170,255,0,0.3)' : '#2A2A2A'}`,
+              }}>
+              {player.first_name[0]}{player.last_name[0]}
+            </div>
+            <div>
+              <p className="font-display text-base text-white">
+                {player.first_name} {player.last_name}
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="font-display text-sm" style={{ color: tier.color }}>{player.elo}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-display"
+                  style={{ background: `${tier.color}15`, color: tier.color, border: `1px solid ${tier.color}30` }}>
+                  {tier.label}
+                </span>
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}>
+            <X className="w-4 h-4 text-[#666]" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* ELO breakdown */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'ELO BASE', value: player.elo_base ?? player.elo, color: 'var(--lime)' },
+              { label: 'GAIN MATCHS', value: `${(player.elo_gain ?? 0) >= 0 ? '+' : ''}${player.elo_gain ?? 0}`, color: (player.elo_gain ?? 0) >= 0 ? '#AAFF00' : '#F87171' },
+              { label: 'TOTAL', value: player.elo, color: tier.color },
+            ].map(s => (
+              <div key={s.label} className="card-dark p-3 text-center">
+                <p className="font-display text-lg" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-[9px] text-[#555] font-display tracking-wider">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-2">
+            {[
+              { label: 'MJ', value: player.matches_played },
+              { label: 'V', value: player.wins },
+              { label: 'D', value: player.losses },
+              { label: 'NOTE', value: player.avg_rating ? Number(player.avg_rating).toFixed(1) : '—' },
+            ].map(s => (
+              <div key={s.label} className="card-dark p-2 text-center">
+                <p className="font-display text-base text-white">{s.value}</p>
+                <p className="text-[9px] text-[#555]">{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Questionnaire V2 */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
+              <h3 className="font-display text-sm text-white">QUESTIONNAIRE V2</h3>
+              {!answers && (
+                <span className="text-[10px] text-[#555] ml-auto">Non complété</span>
+              )}
+            </div>
+
+            {answers ? (
+              <div className="space-y-2">
+                {V2_QUESTIONS.map((q, i) => {
+                  const scoreVal = answers[q.id] // 1-4
+                  const optIdx = scoreVal ? scoreVal - 1 : -1
+                  const color = optIdx >= 0 ? OPTION_COLORS[optIdx] : '#444'
+                  const optLabel = optIdx >= 0 ? OPTION_LABELS[optIdx] : '?'
+                  const optText = optIdx >= 0 ? q.options[optIdx] : 'Non répondu'
+                  return (
+                    <div key={q.id} className="rounded-xl p-3 flex items-start gap-3"
+                      style={{ background: '#111', border: `1px solid ${color}20` }}>
+                      <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ background: `${color}15`, border: `1px solid ${color}30` }}>
+                        <span className="font-display text-xs" style={{ color }}>{optLabel}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] text-[#555] font-display tracking-wider mb-0.5">
+                          {i + 1}. {q.label.toUpperCase()}
+                        </p>
+                        <p className="text-xs leading-relaxed" style={{ color: optIdx >= 0 ? '#DDD' : '#444' }}>
+                          {optText}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="card-dark p-4 text-center">
+                <p className="text-xs text-[#444]">Ce joueur n'a pas encore complété le questionnaire V2.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const router = useRouter()
   const supabase = createClient() as any
 
   const [tab, setTab] = useState<'players' | 'matches'>('players')
   const [loading, setLoading] = useState(true)
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerRow | null>(null)
 
   // Players
   const [players, setPlayers] = useState<PlayerRow[]>([])
@@ -247,7 +428,9 @@ export default function AdminPage() {
               {/* Rows */}
               <div className="divide-y divide-[#111]">
                 {filteredPlayers.map(player => (
-                  <div key={player.id} className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#111] transition-colors">
+                  <div key={player.id}
+                    onClick={() => setSelectedPlayer(player)}
+                    className="grid grid-cols-12 gap-2 px-4 py-3 items-center hover:bg-[#111] transition-colors cursor-pointer">
                     <div className="col-span-4 flex items-center gap-2 min-w-0">
                       <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0"
                         style={{
@@ -435,6 +618,14 @@ export default function AdminPage() {
           open={!!editMatch}
           onClose={() => setEditMatch(null)}
           onUpdated={() => { loadData(); setEditMatch(null) }}
+        />
+      )}
+
+      {/* Player detail modal */}
+      {selectedPlayer && (
+        <PlayerDetailModal
+          player={selectedPlayer}
+          onClose={() => setSelectedPlayer(null)}
         />
       )}
     </div>

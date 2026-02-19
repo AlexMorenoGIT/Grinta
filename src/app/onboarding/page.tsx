@@ -181,6 +181,7 @@ export default function OnboardingPage() {
         elo: newElo,
         onboarding_completed: true,
         has_completed_v2_onboarding: true,
+        v2_answers: answers,
       })
       .eq('id', user.id)
 

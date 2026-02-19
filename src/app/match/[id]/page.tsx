@@ -144,11 +144,19 @@ function PaymentSection({ match, players, isCreator, onUpdate }: {
 
   if (!match.price_total) return null
 
+  // L'organisateur est automatiquement considéré comme ayant payé sa part.
+  // Le coût par joueur ne change pas (basé sur le total de joueurs inscrits).
+  const organizerId = match.created_by
+  const organizerPlayer = players.find(p => p.player_id === organizerId)
+  const nonOrgPlayers = players.filter(p => p.player_id !== organizerId)
+
   const pricePerPlayer = players.length > 0
     ? (match.price_total / players.length).toFixed(2)
     : '0.00'
 
-  const paidCount = players.filter(p => p.has_paid).length
+  // Organisateur compte comme payé pour la progression
+  const nonOrgPaidCount = nonOrgPlayers.filter(p => p.has_paid).length
+  const paidCount = nonOrgPaidCount + (organizerPlayer ? 1 : 0)
 
   return (
     <div className="card-dark p-4 space-y-4">
@@ -188,7 +196,22 @@ function PaymentSection({ match, players, isCreator, onUpdate }: {
 
       {/* Liste joueurs + statut paiement */}
       <div className="space-y-2">
-        {players.map(player => (
+        {/* Organisateur — toujours affiché comme inclus */}
+        {organizerPlayer && (
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#22C55E' }} />
+            <span className="flex-1 text-sm text-white truncate">
+              {organizerPlayer.profiles.first_name} {organizerPlayer.profiles.last_name}
+            </span>
+            <span className="text-xs font-display font-bold px-2 py-1 rounded-lg"
+              style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.2)', color: '#22C55E' }}>
+              ORGANISATEUR ✓
+            </span>
+          </div>
+        )}
+
+        {/* Autres joueurs */}
+        {nonOrgPlayers.map(player => (
           <div key={player.id} className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full flex-shrink-0"
               style={{ background: player.has_paid ? '#22C55E' : '#EF4444' }} />
@@ -711,6 +734,77 @@ function fmtTime(s: number) {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
+function analyzeMatchGoals(
+  goals: MatchGoal[],
+  scoreA: number,
+  scoreB: number,
+  durationSeconds: number | null | undefined
+): string[] {
+  const insights: string[] = []
+  if (goals.length === 0) return insights
+
+  const winner = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
+  const diff = Math.abs(scoreA - scoreB)
+  const total = scoreA + scoreB
+
+  if (!winner) {
+    insights.push(`Match nul accroché — les deux équipes se sont neutralisées (${scoreA}-${scoreB}).`)
+  } else if (diff >= 4) {
+    insights.push(`L'équipe ${winner} a écrasé l'adversaire dans un match à sens unique (${scoreA}-${scoreB}).`)
+  } else if (diff === 1) {
+    insights.push(`Victoire à l'arraché de l'équipe ${winner} — un seul but les a séparées (${scoreA}-${scoreB}).`)
+  } else {
+    insights.push(`L'équipe ${winner} s'impose avec autorité (${scoreA}-${scoreB}).`)
+  }
+
+  // Momentum
+  if (durationSeconds && durationSeconds > 90) {
+    const mid = durationSeconds / 2
+    const earlyA = goals.filter(g => g.team === 'A' && g.minute <= mid).length
+    const earlyB = goals.filter(g => g.team === 'B' && g.minute <= mid).length
+    const lateA = scoreA - earlyA
+    const lateB = scoreB - earlyB
+    if (earlyA > earlyB + 1 && lateB >= lateA) {
+      insights.push("L'équipe A a dominé le début mais l'équipe B a réagi et rééquilibré la rencontre.")
+    } else if (earlyB > earlyA + 1 && lateA >= lateB) {
+      insights.push("L'équipe B a pris le dessus en début de match, mais l'équipe A a renversé la vapeur.")
+    } else if (winner === 'A' && earlyA > earlyB) {
+      insights.push("L'équipe A a imposé son rythme d'entrée et n'a jamais lâché.")
+    } else if (winner === 'B' && earlyB > earlyA) {
+      insights.push("L'équipe B a pris le contrôle dès l'entame et a géré son avantage.")
+    }
+  }
+
+  // Comeback
+  let maxDeficitA = 0, maxDeficitB = 0, runA = 0, runB = 0
+  for (const g of goals) {
+    if (g.team === 'A') runA++; else runB++
+    if (runA < runB) maxDeficitA = Math.max(maxDeficitA, runB - runA)
+    if (runB < runA) maxDeficitB = Math.max(maxDeficitB, runA - runB)
+  }
+  if (winner === 'A' && maxDeficitA >= 2) insights.push(`Remontée épique de l'équipe A — elle avait ${maxDeficitA} buts à remonter ! 💪`)
+  else if (winner === 'B' && maxDeficitB >= 2) insights.push(`Remontée épique de l'équipe B — elle avait ${maxDeficitB} buts à remonter ! 💪`)
+
+  // Triplé éclair
+  const nonCsc = goals.filter(g => !g.is_own_goal)
+  for (let i = 0; i <= nonCsc.length - 3; i++) {
+    const trio = nonCsc.slice(i, i + 3)
+    if (trio[2].minute - trio[0].minute < 180 && trio.every(g => g.team === trio[0].team)) {
+      insights.push(`⚡ Triplé éclair de l'équipe ${trio[0].team} — 3 buts en moins de 3 minutes !`)
+      break
+    }
+  }
+
+  // CSC
+  const cscs = goals.filter(g => g.is_own_goal)
+  if (cscs.length === 1) insights.push('Un but contre son camp a animé la rencontre. 🥅')
+  else if (cscs.length >= 2) insights.push(`${cscs.length} buts contre son camp ont ponctué cette rencontre agitée. 🥅`)
+
+  if (total >= 8) insights.push(`Match prolifique avec ${total} buts au total !`)
+
+  return insights
+}
+
 function StatsSection({ matchId, players, match }: {
   matchId: string
   players: PlayerWithProfile[]
@@ -732,16 +826,18 @@ function StatsSection({ matchId, players, match }: {
       })
   }, [matchId, supabase])
 
-  const getPlayer = (id: string) => players.find(p => p.player_id === id)
+  const getPlayer = (id: string | null | undefined) => id ? players.find(p => p.player_id === id) : undefined
 
-  // Calculs des tops
+  // Calculs — exclure les CSC des stats buteurs
   const scorerMap: Record<string, { player: PlayerWithProfile; goals: number }> = {}
   const assistMap: Record<string, { player: PlayerWithProfile; assists: number }> = {}
   goals.forEach(g => {
-    const scorer = getPlayer(g.scorer_id)
-    if (scorer) {
-      if (!scorerMap[g.scorer_id]) scorerMap[g.scorer_id] = { player: scorer, goals: 0 }
-      scorerMap[g.scorer_id].goals++
+    if (!g.is_own_goal && g.scorer_id) {
+      const scorer = getPlayer(g.scorer_id)
+      if (scorer) {
+        if (!scorerMap[g.scorer_id]) scorerMap[g.scorer_id] = { player: scorer, goals: 0 }
+        scorerMap[g.scorer_id].goals++
+      }
     }
     if (g.assist_id) {
       const assister = getPlayer(g.assist_id)
@@ -751,11 +847,29 @@ function StatsSection({ matchId, players, match }: {
       }
     }
   })
-  const topScorer = Object.values(scorerMap).sort((a, b) => b.goals - a.goals)[0]
-  const topAssist = Object.values(assistMap).sort((a, b) => b.assists - a.assists)[0]
+
+  // Gestion des égalités
+  const maxGoals = Object.values(scorerMap).reduce((m, s) => Math.max(m, s.goals), 0)
+  const topScorers = maxGoals > 0 ? Object.values(scorerMap).filter(s => s.goals === maxGoals) : []
+  const maxAssists = Object.values(assistMap).reduce((m, s) => Math.max(m, s.assists), 0)
+  const topAssisters = maxAssists > 0 ? Object.values(assistMap).filter(s => s.assists === maxAssists) : []
 
   const teamAGoals = goals.filter(g => g.team === 'A')
   const teamBGoals = goals.filter(g => g.team === 'B')
+  const scoreA = match.score_equipe_a ?? teamAGoals.length
+  const scoreB = match.score_equipe_b ?? teamBGoals.length
+  const analysis = analyzeMatchGoals(goals, scoreA, scoreB, match.duration_seconds)
+
+  const playerAvatar = (p: PlayerWithProfile, team: 'A' | 'B' | null) => (
+    <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+      style={{
+        background: team === 'A' ? '#1A3A5C' : team === 'B' ? '#3A1A1A' : '#1A1A1A',
+        color: team === 'A' ? '#60A5FA' : team === 'B' ? '#F87171' : '#888',
+        border: '1px solid #2A2A2A',
+      }}>
+      {p.profiles.first_name[0]}{p.profiles.last_name[0]}
+    </div>
+  )
 
   if (loading) {
     return (
@@ -786,7 +900,7 @@ function StatsSection({ matchId, players, match }: {
           <div className="text-center">
             <p className="font-display text-xs text-blue-400 mb-1">ÉQUIPE A</p>
             <p className="font-display text-5xl text-blue-400" style={{ textShadow: '0 0 20px rgba(59,130,246,0.4)' }}>
-              {match.score_equipe_a ?? teamAGoals.length}
+              {scoreA}
             </p>
           </div>
           <div className="text-center">
@@ -798,59 +912,68 @@ function StatsSection({ matchId, players, match }: {
           <div className="text-center">
             <p className="font-display text-xs text-red-400 mb-1">ÉQUIPE B</p>
             <p className="font-display text-5xl text-red-400" style={{ textShadow: '0 0 20px rgba(239,68,68,0.4)' }}>
-              {match.score_equipe_b ?? teamBGoals.length}
+              {scoreB}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Top scorer + Top assist */}
+      {/* Analyse narrative */}
+      {analysis.length > 0 && (
+        <div className="rounded-xl p-3 space-y-1.5"
+          style={{ background: 'rgba(170,255,0,0.04)', border: '1px solid rgba(170,255,0,0.12)' }}>
+          <p className="font-display text-[10px] tracking-widest" style={{ color: 'var(--lime)' }}>⚡ ANALYSE DU MATCH</p>
+          {analysis.map((line, i) => (
+            <p key={i} className="text-xs text-[#AAA] leading-relaxed">{line}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Top scorers + passeurs (avec égalités) */}
       <div className="grid grid-cols-2 gap-3">
         <div className="card-dark p-3">
-          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: 'var(--lime)' }}>⚽ BUTEUR</p>
-          {topScorer ? (
-            <>
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold mb-2"
-                style={{
-                  background: topScorer.player.team === 'A' ? '#1A3A5C' : topScorer.player.team === 'B' ? '#3A1A1A' : '#1A1A1A',
-                  color: topScorer.player.team === 'A' ? '#60A5FA' : topScorer.player.team === 'B' ? '#F87171' : '#888',
-                  border: '1px solid #2A2A2A',
-                }}>
-                {topScorer.player.profiles.first_name[0]}{topScorer.player.profiles.last_name[0]}
-              </div>
-              <p className="text-sm text-white font-semibold leading-tight">
-                {topScorer.player.profiles.first_name} {topScorer.player.profiles.last_name}
-              </p>
-              <p className="font-display text-lg mt-0.5" style={{ color: 'var(--lime)' }}>
-                {topScorer.goals} but{topScorer.goals > 1 ? 's' : ''}
-              </p>
-            </>
-          ) : (
-            <p className="text-xs text-[#444]">—</p>
+          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: 'var(--lime)' }}>
+            ⚽ BUTEUR{topScorers.length > 1 ? 'S' : ''}
+          </p>
+          {topScorers.length === 0 ? <p className="text-xs text-[#444]">—</p> : (
+            <div className="space-y-2">
+              {topScorers.map(s => (
+                <div key={s.player.player_id} className="flex items-center gap-2">
+                  {playerAvatar(s.player, s.player.team as 'A' | 'B' | null)}
+                  <div className="min-w-0">
+                    <p className="text-xs text-white font-semibold truncate">
+                      {s.player.profiles.first_name} {s.player.profiles.last_name}
+                    </p>
+                    <p className="font-display text-sm" style={{ color: 'var(--lime)' }}>
+                      {s.goals} but{s.goals > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
         <div className="card-dark p-3">
-          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: '#FFB800' }}>🎯 PASSEUR</p>
-          {topAssist ? (
-            <>
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold mb-2"
-                style={{
-                  background: topAssist.player.team === 'A' ? '#1A3A5C' : topAssist.player.team === 'B' ? '#3A1A1A' : '#1A1A1A',
-                  color: topAssist.player.team === 'A' ? '#60A5FA' : topAssist.player.team === 'B' ? '#F87171' : '#888',
-                  border: '1px solid #2A2A2A',
-                }}>
-                {topAssist.player.profiles.first_name[0]}{topAssist.player.profiles.last_name[0]}
-              </div>
-              <p className="text-sm text-white font-semibold leading-tight">
-                {topAssist.player.profiles.first_name} {topAssist.player.profiles.last_name}
-              </p>
-              <p className="font-display text-lg mt-0.5" style={{ color: '#FFB800' }}>
-                {topAssist.assists} passe{topAssist.assists > 1 ? 's' : ''}
-              </p>
-            </>
-          ) : (
-            <p className="text-xs text-[#444]">—</p>
+          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: '#FFB800' }}>
+            🎯 PASSEUR{topAssisters.length > 1 ? 'S' : ''}
+          </p>
+          {topAssisters.length === 0 ? <p className="text-xs text-[#444]">—</p> : (
+            <div className="space-y-2">
+              {topAssisters.map(s => (
+                <div key={s.player.player_id} className="flex items-center gap-2">
+                  {playerAvatar(s.player, s.player.team as 'A' | 'B' | null)}
+                  <div className="min-w-0">
+                    <p className="text-xs text-white font-semibold truncate">
+                      {s.player.profiles.first_name} {s.player.profiles.last_name}
+                    </p>
+                    <p className="font-display text-sm" style={{ color: '#FFB800' }}>
+                      {s.assists} passe{s.assists > 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -859,45 +982,55 @@ function StatsSection({ matchId, players, match }: {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
-          <h3 className="font-display text-base text-white">TIMELINE ({goals.length} but{goals.length > 1 ? 's' : ''})</h3>
+          <h3 className="font-display text-base text-white">
+            TIMELINE ({goals.length} but{goals.length > 1 ? 's' : ''})
+          </h3>
         </div>
 
         <div className="space-y-2">
-          {goals.map((goal, i) => {
-            const scorer = getPlayer(goal.scorer_id)
+          {goals.map((goal) => {
+            const isCSC = !!goal.is_own_goal
+            const scorer = isCSC ? null : getPlayer(goal.scorer_id)
+            const cscPlayer = isCSC ? getPlayer(goal.scorer_id) : null
             const assister = goal.assist_id ? getPlayer(goal.assist_id) : null
             const isA = goal.team === 'A'
+            const borderColor = isCSC ? '#FF6400' : isA ? '#3B82F6' : '#EF4444'
             return (
               <div key={goal.id}
                 className="card-dark p-3 flex items-center gap-3"
-                style={{ borderLeft: `3px solid ${isA ? '#3B82F6' : '#EF4444'}` }}
+                style={{ borderLeft: `3px solid ${borderColor}` }}
               >
-                {/* Minute */}
                 <div className="w-14 flex-shrink-0 text-center">
-                  <span className="font-display text-sm" style={{ color: isA ? '#60A5FA' : '#F87171' }}>
+                  <span className="font-display text-sm" style={{ color: isCSC ? '#FF6400' : isA ? '#60A5FA' : '#F87171' }}>
                     {fmtTime(goal.minute)}
                   </span>
                 </div>
 
-                {/* Icône but */}
-                <span className="text-base flex-shrink-0">⚽</span>
+                <span className="text-base flex-shrink-0">{isCSC ? '🥅' : '⚽'}</span>
 
-                {/* Infos */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">
-                    {scorer ? `${scorer.profiles.first_name} ${scorer.profiles.last_name}` : '—'}
-                  </p>
-                  {assister && (
-                    <p className="text-xs text-[#555] truncate">
-                      → {assister.profiles.first_name} {assister.profiles.last_name}
-                    </p>
+                  {isCSC ? (
+                    <>
+                      <p className="text-sm font-semibold truncate" style={{ color: '#FF6400' }}>
+                        CSC — {cscPlayer ? `${cscPlayer.profiles.first_name} ${cscPlayer.profiles.last_name}` : '?'}
+                      </p>
+                      <p className="text-xs text-[#555]">+1 Équipe {goal.team}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-white truncate">
+                        {scorer ? `${scorer.profiles.first_name} ${scorer.profiles.last_name}` : '—'}
+                      </p>
+                      {assister && (
+                        <p className="text-xs text-[#555] truncate">
+                          → {assister.profiles.first_name} {assister.profiles.last_name}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
 
-                {/* Badge équipe */}
-                <span className={isA ? 'team-a-badge' : 'team-b-badge'}>
-                  ÉQ. {goal.team}
-                </span>
+                <span className={isA ? 'team-a-badge' : 'team-b-badge'}>ÉQ. {goal.team}</span>
               </div>
             )
           })}
@@ -909,14 +1042,17 @@ function StatsSection({ matchId, players, match }: {
         {(['A', 'B'] as const).map(team => {
           const teamGoals = goals.filter(g => g.team === team)
           const isA = team === 'A'
-          const scorers: Record<string, number> = {}
-          teamGoals.forEach(g => {
+          // Scorers (sans CSC)
+          const scorersMap: Record<string, number> = {}
+          teamGoals.filter(g => !g.is_own_goal && g.scorer_id).forEach(g => {
             const p = getPlayer(g.scorer_id)
             if (p) {
               const name = `${p.profiles.first_name} ${p.profiles.last_name}`
-              scorers[name] = (scorers[name] || 0) + 1
+              scorersMap[name] = (scorersMap[name] || 0) + 1
             }
           })
+          // CSC commis dans cette équipe (their own players scoring against themselves)
+          const cscInTeam = goals.filter(g => g.is_own_goal && g.team !== team)
           return (
             <div key={team} className="card-dark p-3">
               <div className="flex items-center gap-2 mb-2">
@@ -925,7 +1061,7 @@ function StatsSection({ matchId, players, match }: {
                 <span className="font-display text-sm text-white ml-auto">{teamGoals.length} buts</span>
               </div>
               <div className="space-y-1">
-                {Object.entries(scorers)
+                {Object.entries(scorersMap)
                   .sort(([, a], [, b]) => b - a)
                   .map(([name, count]) => (
                     <div key={name} className="flex items-center justify-between text-xs">
@@ -935,7 +1071,16 @@ function StatsSection({ matchId, players, match }: {
                       </span>
                     </div>
                   ))}
-                {Object.keys(scorers).length === 0 && (
+                {cscInTeam.map(g => {
+                  const p = getPlayer(g.scorer_id)
+                  return p ? (
+                    <div key={g.id} className="flex items-center justify-between text-xs">
+                      <span className="truncate" style={{ color: '#FF6400' }}>{p.profiles.first_name} {p.profiles.last_name}</span>
+                      <span className="ml-2 flex-shrink-0" style={{ color: '#FF6400' }}>🥅</span>
+                    </div>
+                  ) : null
+                })}
+                {Object.keys(scorersMap).length === 0 && cscInTeam.length === 0 && (
                   <p className="text-xs text-[#444]">Aucun but</p>
                 )}
               </div>
