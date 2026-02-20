@@ -345,18 +345,18 @@ export async function reverseMatchElo(matchId: string) {
     .eq('match_id', matchId)
     .order('created_at')
 
-  // 2. Reverse ELO only if history exists
-  if (history && history.length > 0) {
-    // Fetch match to detect draws
-    const { data: matchData } = await supabase
-      .from('matches')
-      .select('score_equipe_a, score_equipe_b')
-      .eq('id', matchId)
-      .single()
-    const isDraw = matchData &&
-      matchData.score_equipe_a !== null &&
-      matchData.score_equipe_a === matchData.score_equipe_b
+  // 2. Fetch match scores upfront to detect draws (before any reset)
+  const { data: matchData } = await supabase
+    .from('matches')
+    .select('score_equipe_a, score_equipe_b')
+    .eq('id', matchId)
+    .single()
+  const isDraw = matchData &&
+    matchData.score_equipe_a !== null &&
+    matchData.score_equipe_a === matchData.score_equipe_b
 
+  // 3. Reverse ELO only if history exists
+  if (history && history.length > 0) {
     for (const entry of history) {
       const { data: profile } = await supabase
         .from('profiles')
@@ -368,7 +368,7 @@ export async function reverseMatchElo(matchId: string) {
 
       const updates: any = {
         elo: Math.max(100, profile.elo - entry.delta),
-        elo_gain: profile.elo_gain - entry.delta,
+        elo_gain: Math.max(0, profile.elo_gain - entry.delta),
       }
 
       if (entry.reason.startsWith('Victoire')) {
@@ -377,7 +377,6 @@ export async function reverseMatchElo(matchId: string) {
       } else if (entry.reason.startsWith('Défaite')) {
         updates.matches_played = Math.max(0, profile.matches_played - 1)
         if (isDraw) {
-          // Draw was recorded as "Défaite" by the RPC but corrected to draws
           updates.draws = Math.max(0, profile.draws - 1)
         } else {
           updates.losses = Math.max(0, profile.losses - 1)
@@ -390,7 +389,7 @@ export async function reverseMatchElo(matchId: string) {
       await supabase.from('profiles').update(updates).eq('id', entry.player_id)
     }
 
-    // 3. Delete elo_history
+    // Delete elo_history
     await supabase.from('elo_history').delete().eq('match_id', matchId)
   }
 
