@@ -210,6 +210,10 @@ export default function AdminPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [resetting, setResetting] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState<string | null>(null)
+  const [addPlayersMatch, setAddPlayersMatch] = useState<MatchRow | null>(null)
+  const [addPlayersSelected, setAddPlayersSelected] = useState<Set<string>>(new Set())
+  const [addPlayersSaving, setAddPlayersSaving] = useState(false)
+  const [addPlayersSearch, setAddPlayersSearch] = useState('')
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -263,6 +267,33 @@ export default function AdminPage() {
     }
     setDeleting(null)
     setConfirmDelete(null)
+  }
+
+  const saveAddedPlayers = async () => {
+    if (!addPlayersMatch) return
+    setAddPlayersSaving(true)
+    const existingIds = new Set(addPlayersMatch.match_players.map((mp: any) => mp.player_id))
+    const toAdd = [...addPlayersSelected].filter(id => !existingIds.has(id))
+
+    if (toAdd.length === 0) {
+      toast.info('Aucun nouveau joueur à ajouter')
+      setAddPlayersSaving(false)
+      return
+    }
+
+    const rows = toAdd.map(player_id => ({ match_id: addPlayersMatch.id, player_id }))
+    const { error } = await supabase.from('match_players').insert(rows)
+
+    if (error) {
+      toast.error('Erreur : ' + error.message)
+    } else {
+      toast.success(`${toAdd.length} joueur(s) ajouté(s)`)
+      setAddPlayersMatch(null)
+      setAddPlayersSelected(new Set())
+      setAddPlayersSearch('')
+      await loadData()
+    }
+    setAddPlayersSaving(false)
   }
 
   // Filtered + sorted players
@@ -533,6 +564,23 @@ export default function AdminPage() {
                       ÉDITER
                     </button>
 
+                    <button
+                      onClick={() => {
+                        setAddPlayersMatch(match)
+                        setAddPlayersSelected(new Set(match.match_players.map((mp: any) => mp.player_id)))
+                        setAddPlayersSearch('')
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
+                      style={{
+                        background: 'rgba(255,184,0,0.08)',
+                        border: '1px solid rgba(255,184,0,0.2)',
+                        color: '#FFB800',
+                      }}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      JOUEURS
+                    </button>
+
                     {match.status !== 'upcoming' && (
                       confirmReset === match.id ? (
                         <div className="flex gap-2">
@@ -630,6 +678,123 @@ export default function AdminPage() {
           onClose={() => setEditMatch(null)}
           onUpdated={() => { loadData(); setEditMatch(null) }}
         />
+      )}
+
+      {/* Add players modal */}
+      {addPlayersMatch && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setAddPlayersMatch(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl overflow-hidden"
+            style={{ background: '#0E0E0E', border: '1px solid #1E1E1E', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1A1A1A] flex-shrink-0">
+              <div>
+                <p className="font-display text-base text-white">AJOUTER DES JOUEURS</p>
+                <p className="text-[10px] text-[#555] font-display mt-0.5 truncate max-w-[240px]">
+                  {addPlayersMatch.title}
+                </p>
+              </div>
+              <button
+                onClick={() => setAddPlayersMatch(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center"
+                style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}
+              >
+                <X className="w-4 h-4 text-[#666]" />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-4 pt-3 pb-2 flex-shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#444]" />
+                <input
+                  type="text"
+                  value={addPlayersSearch}
+                  onChange={e => setAddPlayersSearch(e.target.value)}
+                  placeholder="Rechercher un joueur..."
+                  className="input-dark w-full"
+                  style={{ paddingLeft: 40 }}
+                />
+              </div>
+            </div>
+
+            {/* Player list */}
+            <div className="overflow-y-auto flex-1 px-4 pb-2">
+              <div className="space-y-1">
+                {players
+                  .filter(p =>
+                    !addPlayersSearch ||
+                    `${p.first_name} ${p.last_name}`.toLowerCase().includes(addPlayersSearch.toLowerCase())
+                  )
+                  .map(player => {
+                    const isAlready = addPlayersMatch.match_players.some((mp: any) => mp.player_id === player.id)
+                    const isSelected = addPlayersSelected.has(player.id)
+                    return (
+                      <button
+                        key={player.id}
+                        disabled={isAlready}
+                        onClick={() => {
+                          const next = new Set(addPlayersSelected)
+                          if (next.has(player.id)) next.delete(player.id)
+                          else next.add(player.id)
+                          setAddPlayersSelected(next)
+                        }}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                        style={{
+                          background: isSelected ? 'rgba(170,255,0,0.08)' : '#111',
+                          border: isSelected ? '1px solid rgba(170,255,0,0.25)' : '1px solid #1A1A1A',
+                          opacity: isAlready ? 0.4 : 1,
+                          cursor: isAlready ? 'default' : 'pointer',
+                        }}
+                      >
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0"
+                          style={{ background: '#1A1A1A', color: '#666', border: '1px solid #2A2A2A' }}
+                        >
+                          {player.first_name.charAt(0)}{player.last_name.charAt(0)}
+                        </div>
+                        <span className="flex-1 text-sm text-left" style={{ color: isSelected ? '#FFF' : '#888' }}>
+                          {player.first_name} {player.last_name}
+                        </span>
+                        <span className="text-[10px] font-display" style={{ color: isAlready ? '#555' : isSelected ? 'var(--lime)' : '#444' }}>
+                          {isAlready ? 'INSCRIT' : isSelected ? '✓' : ''}
+                        </span>
+                      </button>
+                    )
+                  })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-4 border-t border-[#1A1A1A] flex-shrink-0 flex gap-2">
+              <button
+                onClick={() => setAddPlayersMatch(null)}
+                className="flex-1 py-3 rounded-xl text-sm font-display font-bold tracking-wider"
+                style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', color: '#666' }}
+              >
+                ANNULER
+              </button>
+              <button
+                onClick={saveAddedPlayers}
+                disabled={addPlayersSaving}
+                className="flex-1 py-3 rounded-xl text-sm font-display font-bold tracking-wider transition-all"
+                style={{
+                  background: 'rgba(170,255,0,0.15)',
+                  border: '1px solid rgba(170,255,0,0.35)',
+                  color: 'var(--lime)',
+                }}
+              >
+                {addPlayersSaving ? '...' : `AJOUTER (${[...addPlayersSelected].filter(id => !addPlayersMatch.match_players.some((mp: any) => mp.player_id === id)).length})`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Player detail modal */}
