@@ -269,11 +269,16 @@ export default function AdminPage() {
     setConfirmDelete(null)
   }
 
+  const closeAddPlayersModal = () => {
+    setAddPlayersMatch(null)
+    setAddPlayersSelected(new Set())
+    setAddPlayersSearch('')
+  }
+
   const saveAddedPlayers = async () => {
     if (!addPlayersMatch) return
     setAddPlayersSaving(true)
-    const existingIds = new Set(addPlayersMatch.match_players.map((mp: any) => mp.player_id))
-    const toAdd = [...addPlayersSelected].filter(id => !existingIds.has(id))
+    const toAdd = [...addPlayersSelected]
 
     if (toAdd.length === 0) {
       toast.info('Aucun nouveau joueur à ajouter')
@@ -567,7 +572,7 @@ export default function AdminPage() {
                     <button
                       onClick={() => {
                         setAddPlayersMatch(match)
-                        setAddPlayersSelected(new Set(match.match_players.map((mp: any) => mp.player_id)))
+                        setAddPlayersSelected(new Set())
                         setAddPlayersSearch('')
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
@@ -685,7 +690,7 @@ export default function AdminPage() {
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
           style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)' }}
-          onClick={() => setAddPlayersMatch(null)}
+          onClick={closeAddPlayersModal}
         >
           <div
             className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl overflow-hidden"
@@ -701,7 +706,7 @@ export default function AdminPage() {
                 </p>
               </div>
               <button
-                onClick={() => setAddPlayersMatch(null)}
+                onClick={closeAddPlayersModal}
                 className="w-8 h-8 rounded-lg flex items-center justify-center"
                 style={{ background: '#1A1A1A', border: '1px solid #2A2A2A' }}
               >
@@ -774,7 +779,7 @@ export default function AdminPage() {
             {/* Footer */}
             <div className="px-4 py-4 border-t border-[#1A1A1A] flex-shrink-0 flex gap-2">
               <button
-                onClick={() => setAddPlayersMatch(null)}
+                onClick={closeAddPlayersModal}
                 className="flex-1 py-3 rounded-xl text-sm font-display font-bold tracking-wider"
                 style={{ background: '#1A1A1A', border: '1px solid #2A2A2A', color: '#666' }}
               >
@@ -790,7 +795,7 @@ export default function AdminPage() {
                   color: 'var(--lime)',
                 }}
               >
-                {addPlayersSaving ? '...' : `AJOUTER (${[...addPlayersSelected].filter(id => !addPlayersMatch.match_players.some((mp: any) => mp.player_id === id)).length})`}
+                {addPlayersSaving ? '...' : `AJOUTER (${addPlayersSelected.size})`}
               </button>
             </div>
           </div>
