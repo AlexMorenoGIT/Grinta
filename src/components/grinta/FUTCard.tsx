@@ -31,10 +31,14 @@ const DISPLAY: React.CSSProperties = {
   textTransform: 'uppercase' as const,
 };
 
+const BODY: React.CSSProperties = {
+  fontFamily: "'DM Sans', sans-serif",
+};
+
 const SIZES = {
-  sm: { w: 150, h: 210, ovr: 36, name: 13, stat: 10, label: 7, type: 7, hex: 36, gap: 1 },
-  md: { w: 220, h: 308, ovr: 54, name: 18, stat: 14, label: 9, type: 10, hex: 56, gap: 2 },
-  lg: { w: 300, h: 420, ovr: 72, name: 24, stat: 18, label: 12, type: 13, hex: 76, gap: 3 },
+  sm: { w: 150, h: 230, ovr: 32, name: 11, stat: 11, label: 6, type: 6, avatar: 40, hex: 28, pad: 8 },
+  md: { w: 220, h: 340, ovr: 48, name: 16, stat: 15, label: 8, type: 9, avatar: 60, hex: 40, pad: 12 },
+  lg: { w: 300, h: 460, ovr: 64, name: 22, stat: 19, label: 10, type: 12, avatar: 80, hex: 55, pad: 16 },
 };
 
 const TIERS = {
@@ -69,31 +73,34 @@ function scaleStat(v: number | undefined): number {
 }
 
 function getPlayerType(stats: { vit: number; tir: number; pas: number; dri: number; def: number; phy: number }) {
-  const map: [string, string, number][] = [
-    ['VIT', 'SPEEDSTER', stats.vit],
-    ['TIR', 'FINISSEUR', stats.tir],
-    ['PAS', 'MAESTRO', stats.pas],
-    ['DRI', 'DRIBBLEUR', stats.dri],
-    ['DEF', 'ROCHE', stats.def],
-    ['PHY', 'TANK', stats.phy],
+  const map: [string, number][] = [
+    ['SPEEDSTER', stats.vit],
+    ['FINISSEUR', stats.tir],
+    ['MAESTRO', stats.pas],
+    ['DRIBBLEUR', stats.dri],
+    ['ROCHE', stats.def],
+    ['TANK', stats.phy],
   ];
-  map.sort((a, b) => b[2] - a[2]);
-  return map[0][1];
+  map.sort((a, b) => b[1] - a[1]);
+  return map[0][0];
 }
 
-/* ─── Hexagon Radar ─────────────────────────────────────────────────────── */
+/* ─── Hexagon Radar with Labels ─────────────────────────────────────────── */
 
-function HexRadar({ stats, radius, accent, accentRgb }: {
+function HexRadar({ stats, labels, radius, accent, accentRgb, labelSize }: {
   stats: number[];
+  labels: string[];
   radius: number;
   accent: string;
   accentRgb: string;
+  labelSize: number;
 }) {
-  const cx = radius + 4;
-  const cy = radius + 4;
-  const svgSize = (radius + 4) * 2;
+  const margin = labelSize + 10;
+  const cx = radius + margin;
+  const cy = radius + margin;
+  const svgSize = (radius + margin) * 2;
 
-  const hexPoint = (i: number, r: number) => {
+  const hexPoint = (i: number, r: number): [number, number] => {
     const angle = (Math.PI / 3) * i - Math.PI / 2;
     return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
   };
@@ -104,27 +111,44 @@ function HexRadar({ stats, radius, accent, accentRgb }: {
       .join(' ') + ' Z';
 
   const statPath = stats
-    .map((v, i) => hexPoint(i, (v / 99) * radius))
+    .map((v, i) => hexPoint(i, Math.max((v / 99) * radius, 2)))
     .map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
     .join(' ') + ' Z';
 
   return (
     <svg width={svgSize} height={svgSize} viewBox={`0 0 ${svgSize} ${svgSize}`}>
-      {/* Grid rings */}
       {[0.33, 0.66, 1].map((s) => (
-        <path key={s} d={hexPath(radius * s)} fill="none" stroke={`rgba(${accentRgb},0.08)`} strokeWidth="0.5" />
+        <path key={s} d={hexPath(radius * s)} fill="none" stroke={`rgba(${accentRgb},0.1)`} strokeWidth="0.6" />
       ))}
-      {/* Axis lines */}
       {Array.from({ length: 6 }, (_, i) => {
         const [x, y] = hexPoint(i, radius);
-        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={`rgba(${accentRgb},0.06)`} strokeWidth="0.5" />;
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={`rgba(${accentRgb},0.07)`} strokeWidth="0.5" />;
       })}
-      {/* Stat fill */}
-      <path d={statPath} fill={`rgba(${accentRgb},0.15)`} stroke={accent} strokeWidth="1.5" strokeLinejoin="round" />
-      {/* Stat dots */}
+      <path d={statPath} fill={`rgba(${accentRgb},0.18)`} stroke={accent} strokeWidth="1.5" strokeLinejoin="round" />
       {stats.map((v, i) => {
-        const [x, y] = hexPoint(i, (v / 99) * radius);
-        return <circle key={i} cx={x} cy={y} r="2" fill={accent} />;
+        const [x, y] = hexPoint(i, Math.max((v / 99) * radius, 2));
+        return <circle key={i} cx={x} cy={y} r="2.5" fill={accent} />;
+      })}
+      {/* Vertex labels */}
+      {labels.map((label, i) => {
+        const [x, y] = hexPoint(i, radius + labelSize + 2);
+        return (
+          <text
+            key={label}
+            x={x}
+            y={y}
+            textAnchor="middle"
+            dominantBaseline="central"
+            style={{
+              ...DISPLAY,
+              fontSize: labelSize,
+              fill: `rgba(${accentRgb},0.5)`,
+              letterSpacing: '0.05em',
+            }}
+          >
+            {label}
+          </text>
+        );
       })}
     </svg>
   );
@@ -150,16 +174,11 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
   const playerType = useMemo(() => getPlayerType(stats), [stats]);
   const initials = `${player.first_name.charAt(0)}${player.last_name.charAt(0)}`;
 
-  const statEntries: [string, number][] = [
-    ['VIT', stats.vit],
-    ['TIR', stats.tir],
-    ['PAS', stats.pas],
-    ['DRI', stats.dri],
-    ['DEF', stats.def],
-    ['PHY', stats.phy],
+  const statGrid: [string, number][] = [
+    ['VIT', stats.vit], ['TIR', stats.tir], ['PAS', stats.pas],
+    ['DRI', stats.dri], ['DEF', stats.def], ['PHY', stats.phy],
   ];
 
-  // Card clip-path: FUT card shield shape
   const clipPath = `polygon(
     8% 0%, 92% 0%, 100% 4%, 100% 88%,
     92% 96%, 50% 100%, 8% 96%, 0% 88%, 0% 4%
@@ -171,17 +190,17 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
         width: s.w,
         height: s.h,
         position: 'relative',
-        filter: `drop-shadow(0 0 ${size === 'lg' ? 24 : 12}px ${tier.glow})`,
+        filter: `drop-shadow(0 0 ${size === 'lg' ? 20 : 10}px ${tier.glow})`,
         userSelect: 'none',
       }}
     >
-      {/* Outer glow border */}
+      {/* Border glow */}
       <div
         style={{
           position: 'absolute',
           inset: -1,
           clipPath,
-          background: `linear-gradient(160deg, ${tier.accent}40, ${tier.accent}10 40%, ${tier.accent}08 60%, ${tier.accent}30)`,
+          background: `linear-gradient(160deg, ${tier.accent}50, ${tier.accent}10 40%, ${tier.accent}08 60%, ${tier.accent}35)`,
         }}
       />
 
@@ -191,59 +210,58 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
           position: 'absolute',
           inset: 1,
           clipPath,
-          background: `linear-gradient(175deg, ${tier.bg1} 0%, ${tier.bg2} 60%, ${tier.bg1} 100%)`,
+          background: `linear-gradient(175deg, ${tier.bg1} 0%, ${tier.bg2} 55%, ${tier.bg1} 100%)`,
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        {/* Diagonal shine */}
+        {/* Shine streak */}
         <div
           style={{
             position: 'absolute',
             top: 0,
-            left: '-30%',
-            width: '60%',
+            left: '-40%',
+            width: '50%',
             height: '100%',
-            background: `linear-gradient(105deg, transparent, ${tier.shine} 40%, transparent 60%)`,
-            transform: 'skewX(-15deg)',
+            background: `linear-gradient(108deg, transparent 30%, ${tier.shine} 50%, transparent 70%)`,
+            transform: 'skewX(-12deg)',
             pointerEvents: 'none',
+            zIndex: 1,
           }}
         />
 
-        {/* Subtle pattern overlay */}
+        {/* Scanline texture */}
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            backgroundImage: `repeating-linear-gradient(
-              0deg,
-              transparent,
-              transparent ${s.gap + 3}px,
-              rgba(255,255,255,0.008) ${s.gap + 3}px,
-              rgba(255,255,255,0.008) ${s.gap + 4}px
-            )`,
+            backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255,255,255,0.006) 3px, rgba(255,255,255,0.006) 4px)`,
             pointerEvents: 'none',
+            zIndex: 1,
           }}
         />
 
-        {/* Top section: OVR + Type + Avatar */}
+        {/* ── Top: ELO + Avatar ── */}
         <div
           style={{
             display: 'flex',
-            padding: `${s.gap * 4 + 8}px ${s.gap * 4 + 6}px ${s.gap * 2 + 2}px`,
-            gap: s.gap * 2 + 4,
             alignItems: 'flex-start',
+            padding: `${s.pad}px ${s.pad}px ${s.pad * 0.5}px`,
+            position: 'relative',
+            zIndex: 2,
           }}
         >
-          {/* Left: ELO + type */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: s.gap + 1 }}>
+          {/* ELO + tier */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flexShrink: 0 }}>
             <div
               style={{
                 ...DISPLAY,
                 fontSize: s.ovr,
-                lineHeight: 0.9,
+                lineHeight: 0.85,
                 color: tier.accent,
-                letterSpacing: '-0.02em',
-                textShadow: `0 0 20px rgba(${tier.accentRgb},0.4)`,
+                letterSpacing: '-0.03em',
+                textShadow: `0 0 24px rgba(${tier.accentRgb},0.5)`,
               }}
             >
               {player.elo}
@@ -252,45 +270,44 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
               style={{
                 ...DISPLAY,
                 fontSize: s.type,
-                color: `rgba(${tier.accentRgb},0.5)`,
-                letterSpacing: '0.12em',
-                lineHeight: 1,
+                color: `rgba(${tier.accentRgb},0.45)`,
+                letterSpacing: '0.15em',
+                marginTop: 2,
               }}
             >
               {tier.label}
             </div>
           </div>
 
-          {/* Right: Avatar */}
-          <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          {/* Avatar — centered in remaining space */}
+          <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
             {player.avatar_url ? (
               <img
                 src={player.avatar_url}
                 alt=""
                 style={{
-                  width: s.hex * 1.6,
-                  height: s.hex * 1.6,
+                  width: s.avatar,
+                  height: s.avatar,
                   borderRadius: '50%',
                   objectFit: 'cover',
                   border: `2px solid rgba(${tier.accentRgb},0.25)`,
-                  boxShadow: `0 0 16px rgba(${tier.accentRgb},0.15)`,
+                  boxShadow: `0 0 16px rgba(${tier.accentRgb},0.2)`,
                 }}
               />
             ) : (
               <div
                 style={{
-                  width: s.hex * 1.6,
-                  height: s.hex * 1.6,
+                  width: s.avatar,
+                  height: s.avatar,
                   borderRadius: '50%',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: `linear-gradient(135deg, rgba(${tier.accentRgb},0.12), rgba(${tier.accentRgb},0.04))`,
+                  background: `linear-gradient(135deg, rgba(${tier.accentRgb},0.15), rgba(${tier.accentRgb},0.04))`,
                   border: `2px solid rgba(${tier.accentRgb},0.2)`,
                   ...DISPLAY,
-                  fontSize: s.hex * 0.55,
+                  fontSize: s.avatar * 0.38,
                   color: tier.accent,
-                  letterSpacing: '0.02em',
                 }}
               >
                 {initials}
@@ -299,14 +316,16 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
           </div>
         </div>
 
-        {/* Name bar */}
+        {/* ── Name bar ── */}
         <div
           style={{
             textAlign: 'center',
-            padding: `${s.gap + 2}px ${s.gap * 3 + 6}px`,
+            padding: `${size === 'sm' ? 3 : 5}px ${s.pad}px`,
             borderTop: `1px solid rgba(${tier.accentRgb},0.1)`,
             borderBottom: `1px solid rgba(${tier.accentRgb},0.1)`,
             background: `rgba(${tier.accentRgb},0.03)`,
+            position: 'relative',
+            zIndex: 2,
           }}
         >
           <div
@@ -314,7 +333,7 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
               ...DISPLAY,
               fontSize: s.name,
               color: '#F0F0F0',
-              letterSpacing: '0.08em',
+              letterSpacing: '0.06em',
               lineHeight: 1.1,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -328,8 +347,8 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
               ...DISPLAY,
               fontSize: s.type,
               color: tier.accent,
-              letterSpacing: '0.2em',
-              marginTop: s.gap,
+              letterSpacing: '0.18em',
+              marginTop: 1,
               lineHeight: 1,
             }}
           >
@@ -337,64 +356,74 @@ export function FUTCard({ player, size = 'md' }: FUTCardProps) {
           </div>
         </div>
 
-        {/* Bottom section: Radar + Stats */}
+        {/* ── Hex Radar (centered) ── */}
         <div
           style={{
+            flex: 1,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: `${s.gap * 2 + 4}px ${s.gap * 3 + 4}px`,
-            gap: s.gap * 2 + 4,
+            position: 'relative',
+            zIndex: 2,
+            minHeight: 0,
           }}
         >
-          {/* Hex radar */}
-          <div style={{ flexShrink: 0 }}>
-            <HexRadar
-              stats={[stats.vit, stats.tir, stats.pas, stats.dri, stats.def, stats.phy]}
-              radius={s.hex}
-              accent={tier.accent}
-              accentRgb={tier.accentRgb}
-            />
-          </div>
+          <HexRadar
+            stats={[stats.vit, stats.tir, stats.pas, stats.dri, stats.def, stats.phy]}
+            labels={['VIT', 'TIR', 'PAS', 'DRI', 'DEF', 'PHY']}
+            radius={s.hex}
+            accent={tier.accent}
+            accentRgb={tier.accentRgb}
+            labelSize={s.label}
+          />
+        </div>
 
-          {/* Stats columns */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: `${s.gap + 1}px ${s.gap * 3 + 8}px`,
-              flex: 1,
-            }}
-          >
-            {statEntries.map(([label, value]) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: s.gap + 2 }}>
-                <span
-                  style={{
-                    ...DISPLAY,
-                    fontSize: s.stat,
-                    color: value >= 80 ? tier.accent : value >= 50 ? '#CCC' : '#666',
-                    lineHeight: 1,
-                    minWidth: s.stat * 1.8,
-                    textAlign: 'right',
-                  }}
-                >
-                  {value}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "'DM Sans', sans-serif",
-                    fontSize: s.label,
-                    fontWeight: 500,
-                    color: `rgba(${tier.accentRgb},0.4)`,
-                    letterSpacing: '0.06em',
-                    lineHeight: 1,
-                  }}
-                >
-                  {label}
-                </span>
+        {/* ── Stats Grid (3×2) ── */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            padding: `0 ${s.pad}px ${s.pad + 4}px`,
+            gap: size === 'sm' ? 2 : 4,
+            position: 'relative',
+            zIndex: 2,
+          }}
+        >
+          {statGrid.map(([label, value]) => (
+            <div
+              key={label}
+              style={{
+                textAlign: 'center',
+                padding: size === 'sm' ? '2px 0' : '3px 0',
+                borderRadius: 4,
+                background: `rgba(${tier.accentRgb},0.04)`,
+              }}
+            >
+              <div
+                style={{
+                  ...DISPLAY,
+                  fontSize: s.stat,
+                  lineHeight: 1.1,
+                  color: value >= 80 ? tier.accent : value >= 60 ? '#DDD' : value >= 40 ? '#999' : '#555',
+                }}
+              >
+                {value}
               </div>
-            ))}
-          </div>
+              <div
+                style={{
+                  ...BODY,
+                  fontSize: s.label,
+                  fontWeight: 600,
+                  color: `rgba(${tier.accentRgb},0.35)`,
+                  letterSpacing: '0.08em',
+                  lineHeight: 1,
+                  marginTop: 1,
+                }}
+              >
+                {label}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
