@@ -273,6 +273,47 @@ export interface Database {
         }
         Update: Record<string, never>
       }
+      match_challenges: {
+        Row: {
+          id: string
+          match_id: string
+          player_id: string
+          challenge_type: 'specialist' | 'altruiste' | 'verrou' | 'binome' | 'renard' | 'soldat' | 'clutch' | 'insubmersible' | 'proprete' | 'pivot'
+          target_player_id: string | null
+          is_completed: boolean
+          is_self_reported: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          player_id: string
+          challenge_type: string
+          target_player_id?: string | null
+          is_completed?: boolean
+          is_self_reported?: boolean
+        }
+        Update: {
+          is_completed?: boolean
+          is_self_reported?: boolean
+        }
+      }
+      player_badges: {
+        Row: {
+          id: string
+          player_id: string
+          badge_type: string
+          match_id: string | null
+          earned_at: string
+        }
+        Insert: {
+          id?: string
+          player_id: string
+          badge_type: string
+          match_id?: string | null
+        }
+        Update: Record<string, never>
+      }
     }
     Views: Record<string, never>
     Functions: {
@@ -306,6 +347,8 @@ export type Rating = Database['public']['Tables']['ratings']['Row']
 export type MvpVote = Database['public']['Tables']['mvp_votes']['Row']
 export type EloHistory = Database['public']['Tables']['elo_history']['Row']
 export type MatchGoal = Database['public']['Tables']['match_goals']['Row']
+export type MatchChallenge = Database['public']['Tables']['match_challenges']['Row']
+export type PlayerBadge = Database['public']['Tables']['player_badges']['Row']
 
 export type MatchWithPlayers = Match & {
   match_players: (MatchPlayer & { profiles: Profile })[]

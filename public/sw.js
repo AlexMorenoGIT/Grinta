@@ -1,18 +1,16 @@
-const CACHE = 'grinta-v1';
-
-// Shell assets to pre-cache on install
-const PRECACHE = [
-  '/',
-  '/home',
-  '/login',
-  '/manifest.webmanifest',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
-];
+const CACHE = 'grinta-v2';
 
 self.addEventListener('install', (e) => {
+  // Don't pre-cache pages (they may redirect due to auth).
+  // Only cache static assets that will always return 200.
   e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(PRECACHE))
+    caches.open(CACHE).then((c) =>
+      c.addAll([
+        '/manifest.webmanifest',
+        '/icons/icon-192x192.png',
+        '/icons/icon-512x512.png',
+      ])
+    )
   );
   self.skipWaiting();
 });
@@ -30,8 +28,9 @@ self.addEventListener('activate', (e) => {
 
 // Network-first: always try the network, fall back to cache
 self.addEventListener('fetch', (e) => {
-  // Skip non-GET and Supabase API calls (auth/data must be fresh)
   const url = new URL(e.request.url);
+
+  // Skip non-GET and Supabase API calls (auth/data must be fresh)
   if (
     e.request.method !== 'GET' ||
     url.hostname.includes('supabase.co') ||
@@ -43,8 +42,8 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        // Cache successful responses for Next.js pages/assets
-        if (res.ok && (url.pathname.startsWith('/_next/') || PRECACHE.includes(url.pathname))) {
+        // Cache successful responses for Next.js static assets
+        if (res.ok && url.pathname.startsWith('/_next/')) {
           const clone = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, clone));
         }

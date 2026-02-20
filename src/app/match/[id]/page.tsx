@@ -7,11 +7,18 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import {
   ArrowLeft, MapPin, Calendar, Clock, Users, Trophy,
-  Star, Copy, Check, Shuffle, Zap,
-  Crown, Shield, Swords, EuroIcon, Settings, Target
+  Star, Zap, Crown, EuroIcon, Settings
 } from 'lucide-react'
-import type { Profile, Match, MatchPlayer, Composition, Rating, MvpVote, MatchGoal } from '@/types/database'
+import Link from 'next/link'
+import type { Profile, Match, MatchPlayer } from '@/types/database'
 import { EditMatchModal } from '@/components/grinta/EditMatchModal'
+import { finalizeMatchResult } from '@/lib/elo'
+import { CHALLENGE_DESCRIPTIONS } from '@/lib/challenges'
+import { WhatsAppSection } from '@/components/grinta/match/WhatsAppSection'
+import { PaymentSection } from '@/components/grinta/match/PaymentSection'
+import { CompositionsSection } from '@/components/grinta/match/CompositionsSection'
+import { RatingSection } from '@/components/grinta/match/RatingSection'
+import { StatsSection } from '@/components/grinta/match/StatsSection'
 
 type PlayerWithProfile = MatchPlayer & { profiles: Profile }
 
@@ -21,1080 +28,6 @@ function formatDate(d: string) {
   })
 }
 
-// ─────────────────────────────────────────────
-// SECTION WHATSAPP TEMPLATES
-// ─────────────────────────────────────────────
-function WhatsAppSection({ match, players }: {
-  match: Match
-  players: PlayerWithProfile[]
-}) {
-  const [copied, setCopied] = useState<string | null>(null)
-
-  const copy = (key: string, text: string) => {
-    navigator.clipboard.writeText(text)
-    setCopied(key)
-    toast.success('Copié !')
-    setTimeout(() => setCopied(null), 2000)
-  }
-
-  const date = formatDate(match.date)
-  const time = match.heure.substring(0, 5)
-  const playerList = players.map((p, i) => `${i + 1}. ${p.profiles.first_name} ${p.profiles.last_name}`).join('\n')
-  const matchUrl = typeof window !== 'undefined' ? `${window.location.origin}/match/${match.id}` : ''
-
-  const templates = [
-    {
-      key: 'invite',
-      label: '📣 Invitation',
-      subtitle: 'Partager l\'info du match',
-      text: `⚡ *GRINTA — MATCH ORGANISÉ*\n\n📅 ${date}\n⏰ ${time}\n📍 ${match.lieu}${match.google_maps_url ? `\n🗺️ ${match.google_maps_url}` : ''}\n\nNombre de places : ${match.max_players} joueurs\n\nRéponds ici pour t'inscrire ! 🔥\n🔗 ${matchUrl}`,
-    },
-    {
-      key: 'rappel2',
-      label: '⏰ Rappel J-2',
-      subtitle: '2 jours avant le match',
-      text: `⏰ *RAPPEL — MATCH DANS 2 JOURS*\n\n📅 ${date} à ${time}\n📍 ${match.lieu}\n\n👥 *Inscrits (${players.length}/${match.max_players}) :*\n${playerList}\n\nIl reste ${match.max_players - players.length} place(s). Partagez autour de vous ! 💪\n🔗 ${matchUrl}`,
-    },
-    {
-      key: 'rappel1',
-      label: '🔔 Rappel J-1',
-      subtitle: 'La veille du match',
-      text: `🔔 *C'EST DEMAIN — TOUT LE MONDE EST PRÊT ?*\n\n📅 ${date} à ${time}\n📍 ${match.lieu}\n\n👥 *Équipe complète (${players.length} joueurs) :*\n${playerList}\n\n✅ Confirme ta présence en répondant OUI !\n❌ Si tu ne peux plus venir, préviens MAINTENANT.\n🔗 ${matchUrl}`,
-    },
-    {
-      key: 'final',
-      label: '🚨 Final Call H-10',
-      subtitle: '10h avant le match',
-      text: `🚨 *FINAL CALL — MATCH DANS 10H !*\n\n📅 Aujourd'hui à ${time}\n📍 ${match.lieu}\n\nSoyez là 10 min avant l'heure !\n👟 Crampons / baskets propres\n💧 Eau + protège-tibias\n\nLet's go ! ⚡\n🔗 ${matchUrl}`,
-    },
-    {
-      key: 'postmatch',
-      label: '🏆 Post-Match',
-      subtitle: 'Votes MVP + notes',
-      text: `🏆 *MATCH TERMINÉ — VOTE MVP & NOTES*\n\nMerci à tous pour ce match ! 🔥\n\nMaintenant c'est le moment de :\n⭐ *Noter tes coéquipiers et adversaires* (anonyme) sur l'app\n👑 *Voter pour le MVP* du match\n\nOuvre l'appli Grinta et sélectionne ce match pour noter et voter !\n🔗 ${matchUrl}\n\n🔗 Vos notes influencent l'ELO de chacun — soyez honnêtes.`,
-    },
-  ]
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 mb-1">
-        <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
-        <h3 className="font-display text-base text-white">MESSAGES WHATSAPP</h3>
-      </div>
-      <p className="text-xs text-[#555] mb-3">Appuie pour copier, colle dans WhatsApp.</p>
-
-      {templates.map((tmpl) => (
-        <button
-          key={tmpl.key}
-          onClick={() => copy(tmpl.key, tmpl.text)}
-          className="w-full text-left card-dark p-4 flex items-center gap-3 group transition-all"
-        >
-          <div className="flex-1">
-            <p className="font-display text-sm text-white">{tmpl.label}</p>
-            <p className="text-xs text-[#555]">{tmpl.subtitle}</p>
-          </div>
-          <div className="flex-shrink-0">
-            {copied === tmpl.key
-              ? <Check className="w-4 h-4" style={{ color: 'var(--lime)' }} />
-              : <Copy className="w-4 h-4 text-[#444] group-hover:text-[#666] transition-colors" />
-            }
-          </div>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// SECTION PAIEMENT
-// ─────────────────────────────────────────────
-function PaymentSection({ match, players, isCreator, onUpdate }: {
-  match: Match
-  players: PlayerWithProfile[]
-  isCreator: boolean
-  onUpdate: () => void
-}) {
-  const supabase = createClient() as any
-  const [organizer, setOrganizer] = useState<Profile | null>(null)
-  const [copiedRib, setCopiedRib] = useState(false)
-  const [toggling, setToggling] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!match.created_by) return
-    supabase.from('profiles').select('*').eq('id', match.created_by).single()
-      .then(({ data }: any) => { if (data) setOrganizer(data) })
-  }, [match.created_by, supabase])
-
-  const togglePaid = async (player: PlayerWithProfile) => {
-    setToggling(player.id)
-    await supabase.from('match_players')
-      .update({ has_paid: !player.has_paid })
-      .eq('id', player.id)
-    onUpdate()
-    setToggling(null)
-  }
-
-  const copyRib = () => {
-    if (!organizer?.rib) return
-    navigator.clipboard.writeText(organizer.rib)
-    setCopiedRib(true)
-    toast.success('RIB copié !')
-    setTimeout(() => setCopiedRib(false), 2000)
-  }
-
-  if (!match.price_total) return null
-
-  // L'organisateur est automatiquement considéré comme ayant payé sa part.
-  // Le coût par joueur ne change pas (basé sur le total de joueurs inscrits).
-  const organizerId = match.created_by
-  const organizerPlayer = players.find(p => p.player_id === organizerId)
-  const nonOrgPlayers = players.filter(p => p.player_id !== organizerId)
-
-  const pricePerPlayer = players.length > 0
-    ? (match.price_total / players.length).toFixed(2)
-    : '0.00'
-
-  // Organisateur compte comme payé pour la progression
-  const nonOrgPaidCount = nonOrgPlayers.filter(p => p.has_paid).length
-  const paidCount = nonOrgPaidCount + (organizerPlayer ? 1 : 0)
-
-  return (
-    <div className="card-dark p-4 space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="w-1 h-4 rounded-full" style={{ background: '#22C55E' }} />
-        <h3 className="font-display text-base text-white">PAIEMENT</h3>
-      </div>
-
-      {/* Prix par joueur */}
-      <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: '#0F0F0F', border: '1px solid #1A1A1A' }}>
-        <div>
-          <p className="text-xs text-[#555]">Coût par joueur</p>
-          <p className="font-display text-2xl text-white">{pricePerPlayer} €</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-[#555]">Total</p>
-          <p className="font-display text-lg text-white">{match.price_total} €</p>
-        </div>
-      </div>
-
-      {/* Progression paiements */}
-      <div>
-        <div className="flex justify-between text-xs text-[#555] mb-2">
-          <span>Paiements reçus</span>
-          <span style={{ color: paidCount === players.length ? 'var(--lime)' : '#888' }}>
-            {paidCount}/{players.length}
-          </span>
-        </div>
-        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#1A1A1A' }}>
-          <div className="h-full rounded-full transition-all"
-            style={{
-              width: players.length > 0 ? `${(paidCount / players.length) * 100}%` : '0%',
-              background: 'var(--lime)',
-            }} />
-        </div>
-      </div>
-
-      {/* Liste joueurs + statut paiement */}
-      <div className="space-y-2">
-        {/* Organisateur — toujours affiché comme inclus */}
-        {organizerPlayer && (
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#22C55E' }} />
-            <span className="flex-1 text-sm text-white truncate">
-              {organizerPlayer.profiles.first_name} {organizerPlayer.profiles.last_name}
-            </span>
-            <span className="text-xs font-display font-bold px-2 py-1 rounded-lg"
-              style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.2)', color: '#22C55E' }}>
-              ORGANISATEUR ✓
-            </span>
-          </div>
-        )}
-
-        {/* Autres joueurs */}
-        {nonOrgPlayers.map(player => (
-          <div key={player.id} className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ background: player.has_paid ? '#22C55E' : '#EF4444' }} />
-            <span className="flex-1 text-sm text-white truncate">
-              {player.profiles.first_name} {player.profiles.last_name}
-            </span>
-            {isCreator ? (
-              <button
-                onClick={() => togglePaid(player)}
-                disabled={toggling === player.id}
-                className="text-xs px-2 py-1 rounded-lg transition-all font-display font-bold"
-                style={{
-                  background: player.has_paid ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                  border: `1px solid ${player.has_paid ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
-                  color: player.has_paid ? '#22C55E' : '#EF4444',
-                }}
-              >
-                {toggling === player.id ? '...' : player.has_paid ? 'PAYÉ ✓' : 'NON PAYÉ'}
-              </button>
-            ) : (
-              <span className="text-xs font-display font-bold px-2 py-1 rounded-lg"
-                style={{
-                  background: player.has_paid ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
-                  color: player.has_paid ? '#22C55E' : '#EF4444',
-                }}>
-                {player.has_paid ? 'PAYÉ' : 'NON PAYÉ'}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Boutons Wero / RIB organisateur */}
-      {organizer && (organizer.wero_phone || organizer.rib) && (
-        <div className="pt-2 border-t border-[#1A1A1A] space-y-2">
-          <p className="text-xs text-[#555]">Rembourser l'organisateur :</p>
-          {organizer.wero_phone && (
-            <a
-              href={`tel:${organizer.wero_phone}`}
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-display font-bold tracking-wider transition-all"
-              style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', color: '#22C55E' }}
-            >
-              📱 REMBOURSER VIA WERO
-            </a>
-          )}
-          {organizer.rib && (
-            <button
-              onClick={copyRib}
-              className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-display font-bold tracking-wider transition-all"
-              style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)', color: '#3B82F6' }}
-            >
-              {copiedRib ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copiedRib ? 'RIB COPIÉ !' : 'COPIER LE RIB'}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// SECTION COMPOSITIONS
-// ─────────────────────────────────────────────
-function CompositionsSection({ matchId, players, isCreator }: {
-  matchId: string
-  players: PlayerWithProfile[]
-  isCreator: boolean
-}) {
-  const supabase = createClient() as any
-  const [compositions, setCompositions] = useState<Composition[]>([])
-  const [loading, setLoading] = useState(false)
-  const [activeVariant, setActiveVariant] = useState(1)
-
-  const loadCompositions = useCallback(async () => {
-    const { data } = await supabase
-      .from('compositions')
-      .select('*')
-      .eq('match_id', matchId)
-      .order('variant')
-    if (data) setCompositions(data as Composition[])
-  }, [matchId, supabase])
-
-  useEffect(() => { loadCompositions() }, [loadCompositions])
-
-  const generate = async () => {
-    if (players.length < 4) {
-      toast.error('Il faut au moins 4 joueurs pour générer des compositions')
-      return
-    }
-    setLoading(true)
-    const { error } = await (supabase as any).rpc('generate_compositions', { p_match_id: matchId })
-    if (error) toast.error('Erreur lors de la génération')
-    else {
-      toast.success('3 compositions générées !')
-      await loadCompositions()
-    }
-    setLoading(false)
-  }
-
-  const applyVariant = async (variant: number) => {
-    const comp = compositions.find(c => c.variant === variant)
-    if (!comp) return
-
-    const updates = [
-      ...comp.team_a_players.map(id => ({ match_id: matchId, player_id: id, team: 'A' as const })),
-      ...comp.team_b_players.map(id => ({ match_id: matchId, player_id: id, team: 'B' as const })),
-    ]
-
-    for (const u of updates) {
-      await supabase.from('match_players').update({ team: u.team }).eq('match_id', matchId).eq('player_id', u.player_id)
-    }
-
-    await supabase.from('compositions').update({ is_applied: false }).eq('match_id', matchId)
-    await supabase.from('compositions').update({ is_applied: true }).eq('match_id', matchId).eq('variant', variant)
-
-    toast.success(`Variante ${variant} appliquée !`)
-    await loadCompositions()
-  }
-
-  const getPlayerById = (id: string) => players.find(p => p.player_id === id)
-
-  const currentComp = compositions.find(c => c.variant === activeVariant)
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
-          <h3 className="font-display text-base text-white">COMPOSITIONS ({players.length} joueurs)</h3>
-        </div>
-        {isCreator && (
-          <button
-            onClick={generate}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-display font-bold tracking-wider transition-all"
-            style={{
-              background: loading ? '#1A1A1A' : 'rgba(170,255,0,0.1)',
-              border: '1px solid rgba(170,255,0,0.25)',
-              color: loading ? '#555' : 'var(--lime)',
-            }}
-          >
-            <Shuffle className="w-3.5 h-3.5" />
-            {loading ? '...' : compositions.length > 0 ? 'REGÉNÉRER' : 'GÉNÉRER'}
-          </button>
-        )}
-      </div>
-
-      {compositions.length === 0 ? (
-        <div className="card-dark p-6 text-center">
-          <Swords className="w-8 h-8 mx-auto mb-3 text-[#333]" />
-          <p className="font-display text-sm text-[#555]">AUCUNE COMPOSITION</p>
-          <p className="text-xs text-[#444] mt-1">
-            {isCreator ? 'Génère les compositions quand tous les joueurs sont inscrits.' : 'Le créateur du match génèrera les compositions.'}
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Variant selector */}
-          <div className="flex gap-1 p-1 rounded-xl" style={{ background: '#111' }}>
-            {compositions.map(c => (
-              <button
-                key={c.variant}
-                onClick={() => setActiveVariant(c.variant)}
-                className="flex-1 py-2 rounded-lg text-xs font-display font-bold tracking-wider uppercase transition-all"
-                style={{
-                  background: activeVariant === c.variant ? '#1E1E1E' : 'transparent',
-                  color: activeVariant === c.variant ? 'var(--lime)' : '#555',
-                  border: activeVariant === c.variant ? '1px solid #2A2A2A' : '1px solid transparent',
-                }}
-              >
-                VAR. {c.variant}{c.is_applied ? ' ✓' : ''}
-              </button>
-            ))}
-          </div>
-
-          {currentComp && (
-            <div className="space-y-3 animate-fade-in">
-              {/* Balance score */}
-              <div className="card-dark p-3 text-center">
-                <p className="text-xs text-[#555] mb-1 font-display-light tracking-wider">ÉCART ELO</p>
-                <p className="font-display text-2xl"
-                  style={{ color: (currentComp.balance_score || 0) < 100 ? 'var(--lime)' : (currentComp.balance_score || 0) < 200 ? '#FFB800' : '#EF4444' }}>
-                  {currentComp.balance_score ? Math.round(currentComp.balance_score) : '—'}
-                </p>
-                <p className="text-xs text-[#555] mt-0.5">
-                  {(currentComp.balance_score || 0) < 100 ? 'Très équilibré' : (currentComp.balance_score || 0) < 200 ? 'Correct' : 'Déséquilibré'}
-                </p>
-              </div>
-
-              {/* Teams */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Team A */}
-                <div className="card-dark p-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Shield className="w-4 h-4 text-blue-400" />
-                    <span className="team-a-badge">ÉQUIPE A</span>
-                  </div>
-                  <div className="space-y-2">
-                    {currentComp.team_a_players.map(pid => {
-                      const p = getPlayerById(pid)
-                      return p ? (
-                        <div key={pid} className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0"
-                            style={{ background: '#1A3A5C', color: '#60A5FA' }}>
-                            {p.profiles.first_name.charAt(0)}{p.profiles.last_name.charAt(0)}
-                          </div>
-                          <p className="text-xs text-white truncate font-medium">{p.profiles.first_name}</p>
-                        </div>
-                      ) : null
-                    })}
-                  </div>
-                </div>
-
-                {/* Team B */}
-                <div className="card-dark p-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Shield className="w-4 h-4 text-red-400" />
-                    <span className="team-b-badge">ÉQUIPE B</span>
-                  </div>
-                  <div className="space-y-2">
-                    {currentComp.team_b_players.map(pid => {
-                      const p = getPlayerById(pid)
-                      return p ? (
-                        <div key={pid} className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0"
-                            style={{ background: '#3A1A1A', color: '#F87171' }}>
-                            {p.profiles.first_name.charAt(0)}{p.profiles.last_name.charAt(0)}
-                          </div>
-                          <p className="text-xs text-white truncate font-medium">{p.profiles.first_name}</p>
-                        </div>
-                      ) : null
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Apply button */}
-              {isCreator && (
-                <button
-                  onClick={() => applyVariant(activeVariant)}
-                  className="btn-ghost text-sm"
-                  style={{
-                    color: currentComp.is_applied ? 'var(--lime)' : undefined,
-                    borderColor: currentComp.is_applied ? 'rgba(170,255,0,0.3)' : undefined,
-                  }}
-                >
-                  {currentComp.is_applied ? '✓ COMPOSITION APPLIQUÉE' : 'APPLIQUER CETTE COMPOSITION'}
-                </button>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// SECTION NOTATION POST-MATCH
-// ─────────────────────────────────────────────
-function RatingSection({ matchId, currentUserId, players }: {
-  matchId: string
-  currentUserId: string
-  players: PlayerWithProfile[]
-}) {
-  const supabase = createClient() as any
-  const [ratings, setRatings] = useState<Record<string, number>>({})
-  const [myVote, setMyVote] = useState<string | null>(null)
-  const [existingRatings, setExistingRatings] = useState<Rating[]>([])
-  const [existingVote, setExistingVote] = useState<MvpVote | null>(null)
-  const [submittedRatings, setSubmittedRatings] = useState(false)
-  const [submittedVote, setSubmittedVote] = useState(false)
-  const [loadingRatings, setLoadingRatings] = useState(false)
-  const [loadingVote, setLoadingVote] = useState(false)
-  const [mvpVotes, setMvpVotes] = useState<MvpVote[]>([])
-
-  const otherPlayers = players.filter(p => p.player_id !== currentUserId)
-  const amIPlaying = players.some(p => p.player_id === currentUserId)
-
-  useEffect(() => {
-    const load = async () => {
-      const [ratingsRes, voteRes, allVotesRes] = await Promise.all([
-        supabase.from('ratings').select('*').eq('match_id', matchId).eq('rater_id', currentUserId),
-        supabase.from('mvp_votes').select('*').eq('match_id', matchId).eq('voter_id', currentUserId).single(),
-        supabase.from('mvp_votes').select('*').eq('match_id', matchId),
-      ])
-      if (ratingsRes.data?.length) {
-        setExistingRatings(ratingsRes.data)
-        setSubmittedRatings(true)
-      }
-      if (voteRes.data) {
-        setExistingVote(voteRes.data)
-        setMyVote(voteRes.data.voted_player_id)
-        setSubmittedVote(true)
-      }
-      if (allVotesRes.data) setMvpVotes(allVotesRes.data)
-    }
-    load()
-  }, [matchId, currentUserId, supabase])
-
-  const submitRatings = async () => {
-    if (Object.keys(ratings).length < otherPlayers.length) {
-      toast.error(`Note tous les joueurs (${Object.keys(ratings).length}/${otherPlayers.length} notés)`)
-      return
-    }
-    setLoadingRatings(true)
-
-    const inserts = Object.entries(ratings).map(([playerId, score]) => ({
-      match_id: matchId,
-      rated_player_id: playerId,
-      rater_id: currentUserId,
-      score,
-    }))
-
-    const { error } = await supabase.from('ratings').upsert(inserts, { onConflict: 'match_id,rated_player_id,rater_id' })
-    if (error) toast.error('Erreur lors de la notation')
-    else {
-      toast.success('Notes envoyées anonymement !')
-      setSubmittedRatings(true)
-    }
-    setLoadingRatings(false)
-  }
-
-  const submitVote = async () => {
-    if (!myVote) return
-    setLoadingVote(true)
-
-    const { error } = await supabase.from('mvp_votes').upsert({
-      match_id: matchId,
-      voted_player_id: myVote,
-      voter_id: currentUserId,
-    }, { onConflict: 'match_id,voter_id' })
-
-    if (error) toast.error('Erreur lors du vote')
-    else {
-      toast.success('Vote MVP enregistré !')
-      setSubmittedVote(true)
-      const { data } = await supabase.from('mvp_votes').select('*').eq('match_id', matchId)
-      if (data) setMvpVotes(data)
-    }
-    setLoadingVote(false)
-  }
-
-  const voteCount: Record<string, number> = {}
-  mvpVotes.forEach(v => {
-    voteCount[v.voted_player_id] = (voteCount[v.voted_player_id] || 0) + 1
-  })
-  const maxVotes = Math.max(...Object.values(voteCount), 0)
-
-  if (!amIPlaying) {
-    return (
-      <div className="card-dark p-4 text-center">
-        <p className="text-sm text-[#555]">Tu n'étais pas dans ce match.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* NOTATION ANONYME */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-1 h-4 rounded-full" style={{ background: '#3B82F6' }} />
-          <h3 className="font-display text-base text-white">NOTES JOUEURS</h3>
-        </div>
-        <p className="text-xs text-[#555] mb-3">
-          🔒 Tes notes sont 100% anonymes. Note honnêtement — ça impacte l'ELO de chacun.
-        </p>
-
-        {submittedRatings ? (
-          <div className="card-dark p-4 text-center">
-            <Check className="w-6 h-6 mx-auto mb-2" style={{ color: 'var(--lime)' }} />
-            <p className="font-display text-sm" style={{ color: 'var(--lime)' }}>NOTES ENVOYÉES</p>
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              {existingRatings.map(r => {
-                const player = players.find(p => p.player_id === r.rated_player_id)
-                return player ? (
-                  <div key={r.id} className="flex items-center gap-2 text-xs text-[#888]">
-                    <span className="flex-1 truncate">{player.profiles.first_name}</span>
-                    <span className="font-display font-bold text-white">{r.score}/10</span>
-                  </div>
-                ) : null
-              })}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {otherPlayers.map(player => (
-              <div key={player.player_id} className="card-dark p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold"
-                    style={{ background: '#1A1A1A', color: '#888', border: '1px solid #2A2A2A' }}>
-                    {player.profiles.first_name.charAt(0)}{player.profiles.last_name.charAt(0)}
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm text-white">
-                      {player.profiles.first_name} {player.profiles.last_name}
-                    </p>
-                  </div>
-                  <div className="font-display text-2xl font-bold"
-                    style={{ color: ratings[player.player_id] ? 'var(--lime)' : '#333' }}>
-                    {ratings[player.player_id] || '?'}
-                  </div>
-                </div>
-
-                <input
-                  type="range"
-                  min={1} max={10} step={1}
-                  value={ratings[player.player_id] || 5}
-                  onChange={(e) => setRatings(prev => ({ ...prev, [player.player_id]: parseInt(e.target.value) }))}
-                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                  style={{
-                    background: ratings[player.player_id]
-                      ? `linear-gradient(to right, var(--lime) 0%, var(--lime) ${(ratings[player.player_id] - 1) / 9 * 100}%, #1A1A1A ${(ratings[player.player_id] - 1) / 9 * 100}%, #1A1A1A 100%)`
-                      : '#1A1A1A'
-                  }}
-                />
-                <div className="flex justify-between text-[10px] text-[#444] mt-1">
-                  <span>Mauvais</span><span>Moyen</span><span>Excellent</span>
-                </div>
-              </div>
-            ))}
-
-            <button
-              onClick={submitRatings}
-              disabled={loadingRatings || Object.keys(ratings).length < otherPlayers.length}
-              className="btn-lime"
-            >
-              {loadingRatings ? 'ENVOI...' : `ENVOYER MES NOTES (${Object.keys(ratings).length}/${otherPlayers.length})`}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* VOTE MVP */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-1 h-4 rounded-full" style={{ background: 'var(--gold)' }} />
-          <h3 className="font-display text-base text-white">VOTE MVP</h3>
-          <span className="text-xs text-[#555]">— public</span>
-        </div>
-        <p className="text-xs text-[#555] mb-3">
-          Le MVP reçoit +10 pts ELO bonus. Le vote est visible de tous.
-        </p>
-
-        <div className="space-y-2">
-          {players.filter(p => p.player_id !== currentUserId).map(player => {
-            const votes = voteCount[player.player_id] || 0
-            const isLeader = votes === maxVotes && votes > 0
-            const isSelected = myVote === player.player_id
-
-            return (
-              <button
-                key={player.player_id}
-                onClick={() => !submittedVote && setMyVote(player.player_id)}
-                disabled={submittedVote}
-                className="w-full text-left card-dark p-3 flex items-center gap-3 transition-all"
-                style={{
-                  borderColor: isSelected ? 'rgba(255,184,0,0.4)' : isLeader ? 'rgba(255,184,0,0.2)' : undefined,
-                  background: isSelected ? 'rgba(255,184,0,0.08)' : undefined,
-                }}
-              >
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                  style={{ background: '#1A1A1A', color: '#888', border: '1px solid #2A2A2A' }}>
-                  {player.profiles.first_name.charAt(0)}{player.profiles.last_name.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white font-semibold truncate">
-                    {player.profiles.first_name} {player.profiles.last_name}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {isLeader && <Crown className="w-4 h-4" style={{ color: 'var(--gold)' }} />}
-                  {votes > 0 && (
-                    <span className="font-display text-sm"
-                      style={{ color: isLeader ? 'var(--gold)' : '#555' }}>
-                      {votes} vote{votes > 1 ? 's' : ''}
-                    </span>
-                  )}
-                  <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0"
-                    style={{
-                      borderColor: isSelected ? 'var(--gold)' : '#333',
-                      background: isSelected ? 'var(--gold)' : 'transparent',
-                    }}>
-                    {isSelected && <div className="w-2 h-2 rounded-full bg-black" />}
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        {!submittedVote && myVote && (
-          <button
-            onClick={submitVote}
-            disabled={loadingVote}
-            className="btn-lime mt-3"
-            style={{ background: 'var(--gold)', color: '#000' }}
-          >
-            {loadingVote ? 'ENVOI...' : '👑 VOTER POUR CE MVP'}
-          </button>
-        )}
-        {submittedVote && (
-          <div className="card-dark p-3 text-center mt-3">
-            <p className="font-display text-sm" style={{ color: 'var(--gold)' }}>✓ VOTE MVP ENREGISTRÉ</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// SECTION STATS POST-MATCH
-// ─────────────────────────────────────────────
-function fmtTime(s: number) {
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
-
-function analyzeMatchGoals(
-  goals: MatchGoal[],
-  scoreA: number,
-  scoreB: number,
-  durationSeconds: number | null | undefined
-): string[] {
-  const insights: string[] = []
-  if (goals.length === 0) return insights
-
-  const winner = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
-  const diff = Math.abs(scoreA - scoreB)
-  const total = scoreA + scoreB
-
-  if (!winner) {
-    insights.push(`Match nul accroché — les deux équipes se sont neutralisées (${scoreA}-${scoreB}).`)
-  } else if (diff >= 4) {
-    insights.push(`L'équipe ${winner} a écrasé l'adversaire dans un match à sens unique (${scoreA}-${scoreB}).`)
-  } else if (diff === 1) {
-    insights.push(`Victoire à l'arraché de l'équipe ${winner} — un seul but les a séparées (${scoreA}-${scoreB}).`)
-  } else {
-    insights.push(`L'équipe ${winner} s'impose avec autorité (${scoreA}-${scoreB}).`)
-  }
-
-  // Momentum
-  if (durationSeconds && durationSeconds > 90) {
-    const mid = durationSeconds / 2
-    const earlyA = goals.filter(g => g.team === 'A' && g.minute <= mid).length
-    const earlyB = goals.filter(g => g.team === 'B' && g.minute <= mid).length
-    const lateA = scoreA - earlyA
-    const lateB = scoreB - earlyB
-    if (earlyA > earlyB + 1 && lateB >= lateA) {
-      insights.push("L'équipe A a dominé le début mais l'équipe B a réagi et rééquilibré la rencontre.")
-    } else if (earlyB > earlyA + 1 && lateA >= lateB) {
-      insights.push("L'équipe B a pris le dessus en début de match, mais l'équipe A a renversé la vapeur.")
-    } else if (winner === 'A' && earlyA > earlyB) {
-      insights.push("L'équipe A a imposé son rythme d'entrée et n'a jamais lâché.")
-    } else if (winner === 'B' && earlyB > earlyA) {
-      insights.push("L'équipe B a pris le contrôle dès l'entame et a géré son avantage.")
-    }
-  }
-
-  // Comeback
-  let maxDeficitA = 0, maxDeficitB = 0, runA = 0, runB = 0
-  for (const g of goals) {
-    if (g.team === 'A') runA++; else runB++
-    if (runA < runB) maxDeficitA = Math.max(maxDeficitA, runB - runA)
-    if (runB < runA) maxDeficitB = Math.max(maxDeficitB, runA - runB)
-  }
-  if (winner === 'A' && maxDeficitA >= 2) insights.push(`Remontée épique de l'équipe A — elle avait ${maxDeficitA} buts à remonter ! 💪`)
-  else if (winner === 'B' && maxDeficitB >= 2) insights.push(`Remontée épique de l'équipe B — elle avait ${maxDeficitB} buts à remonter ! 💪`)
-
-  // Triplé éclair
-  const nonCsc = goals.filter(g => !g.is_own_goal)
-  for (let i = 0; i <= nonCsc.length - 3; i++) {
-    const trio = nonCsc.slice(i, i + 3)
-    if (trio[2].minute - trio[0].minute < 180 && trio.every(g => g.team === trio[0].team)) {
-      insights.push(`⚡ Triplé éclair de l'équipe ${trio[0].team} — 3 buts en moins de 3 minutes !`)
-      break
-    }
-  }
-
-  // CSC
-  const cscs = goals.filter(g => g.is_own_goal)
-  if (cscs.length === 1) insights.push('Un but contre son camp a animé la rencontre. 🥅')
-  else if (cscs.length >= 2) insights.push(`${cscs.length} buts contre son camp ont ponctué cette rencontre agitée. 🥅`)
-
-  if (total >= 8) insights.push(`Match prolifique avec ${total} buts au total !`)
-
-  return insights
-}
-
-function StatsSection({ matchId, players, match }: {
-  matchId: string
-  players: PlayerWithProfile[]
-  match: Match
-}) {
-  const supabase = createClient() as any
-  const [goals, setGoals] = useState<MatchGoal[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    supabase
-      .from('match_goals')
-      .select('*')
-      .eq('match_id', matchId)
-      .order('goal_order')
-      .then(({ data }: any) => {
-        if (data) setGoals(data as MatchGoal[])
-        setLoading(false)
-      })
-  }, [matchId, supabase])
-
-  const getPlayer = (id: string | null | undefined) => id ? players.find(p => p.player_id === id) : undefined
-
-  // Calculs — exclure les CSC des stats buteurs
-  const scorerMap: Record<string, { player: PlayerWithProfile; goals: number }> = {}
-  const assistMap: Record<string, { player: PlayerWithProfile; assists: number }> = {}
-  goals.forEach(g => {
-    if (!g.is_own_goal && g.scorer_id) {
-      const scorer = getPlayer(g.scorer_id)
-      if (scorer) {
-        if (!scorerMap[g.scorer_id]) scorerMap[g.scorer_id] = { player: scorer, goals: 0 }
-        scorerMap[g.scorer_id].goals++
-      }
-    }
-    if (g.assist_id) {
-      const assister = getPlayer(g.assist_id)
-      if (assister) {
-        if (!assistMap[g.assist_id]) assistMap[g.assist_id] = { player: assister, assists: 0 }
-        assistMap[g.assist_id].assists++
-      }
-    }
-  })
-
-  // Gestion des égalités
-  const maxGoals = Object.values(scorerMap).reduce((m, s) => Math.max(m, s.goals), 0)
-  const topScorers = maxGoals > 0 ? Object.values(scorerMap).filter(s => s.goals === maxGoals) : []
-  const maxAssists = Object.values(assistMap).reduce((m, s) => Math.max(m, s.assists), 0)
-  const topAssisters = maxAssists > 0 ? Object.values(assistMap).filter(s => s.assists === maxAssists) : []
-
-  const teamAGoals = goals.filter(g => g.team === 'A')
-  const teamBGoals = goals.filter(g => g.team === 'B')
-  const scoreA = match.score_equipe_a ?? teamAGoals.length
-  const scoreB = match.score_equipe_b ?? teamBGoals.length
-  const analysis = analyzeMatchGoals(goals, scoreA, scoreB, match.duration_seconds)
-
-  const playerAvatar = (p: PlayerWithProfile, team: 'A' | 'B' | null) => (
-    <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-      style={{
-        background: team === 'A' ? '#1A3A5C' : team === 'B' ? '#3A1A1A' : '#1A1A1A',
-        color: team === 'A' ? '#60A5FA' : team === 'B' ? '#F87171' : '#888',
-        border: '1px solid #2A2A2A',
-      }}>
-      {p.profiles.first_name[0]}{p.profiles.last_name[0]}
-    </div>
-  )
-
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        <div className="skeleton h-20 rounded-xl" />
-        <div className="skeleton h-32 rounded-xl" />
-        <div className="skeleton h-48 rounded-xl" />
-      </div>
-    )
-  }
-
-  if (goals.length === 0) {
-    return (
-      <div className="card-dark p-8 text-center">
-        <Target className="w-8 h-8 mx-auto mb-3 text-[#333]" />
-        <p className="font-display text-sm text-[#555]">AUCUN BUT ENREGISTRÉ</p>
-        <p className="text-xs text-[#444] mt-1">Le live n'a pas été utilisé pour ce match.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4 animate-fade-in">
-
-      {/* Score + durée */}
-      <div className="card-dark p-4">
-        <div className="flex items-center justify-center gap-6">
-          <div className="text-center">
-            <p className="font-display text-xs text-blue-400 mb-1">ÉQUIPE A</p>
-            <p className="font-display text-5xl text-blue-400" style={{ textShadow: '0 0 20px rgba(59,130,246,0.4)' }}>
-              {scoreA}
-            </p>
-          </div>
-          <div className="text-center">
-            <p className="font-display text-2xl text-[#2A2A2A]">—</p>
-            {match.duration_seconds != null && (
-              <p className="text-[10px] text-[#444] font-display mt-1">{fmtTime(match.duration_seconds)}</p>
-            )}
-          </div>
-          <div className="text-center">
-            <p className="font-display text-xs text-red-400 mb-1">ÉQUIPE B</p>
-            <p className="font-display text-5xl text-red-400" style={{ textShadow: '0 0 20px rgba(239,68,68,0.4)' }}>
-              {scoreB}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Analyse narrative */}
-      {analysis.length > 0 && (
-        <div className="rounded-xl p-3 space-y-1.5"
-          style={{ background: 'rgba(170,255,0,0.04)', border: '1px solid rgba(170,255,0,0.12)' }}>
-          <p className="font-display text-[10px] tracking-widest" style={{ color: 'var(--lime)' }}>⚡ ANALYSE DU MATCH</p>
-          {analysis.map((line, i) => (
-            <p key={i} className="text-xs text-[#AAA] leading-relaxed">{line}</p>
-          ))}
-        </div>
-      )}
-
-      {/* Top scorers + passeurs (avec égalités) */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="card-dark p-3">
-          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: 'var(--lime)' }}>
-            ⚽ BUTEUR{topScorers.length > 1 ? 'S' : ''}
-          </p>
-          {topScorers.length === 0 ? <p className="text-xs text-[#444]">—</p> : (
-            <div className="space-y-2">
-              {topScorers.map(s => (
-                <div key={s.player.player_id} className="flex items-center gap-2">
-                  {playerAvatar(s.player, s.player.team as 'A' | 'B' | null)}
-                  <div className="min-w-0">
-                    <p className="text-xs text-white font-semibold truncate">
-                      {s.player.profiles.first_name} {s.player.profiles.last_name}
-                    </p>
-                    <p className="font-display text-sm" style={{ color: 'var(--lime)' }}>
-                      {s.goals} but{s.goals > 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="card-dark p-3">
-          <p className="font-display text-[10px] tracking-widest mb-2" style={{ color: '#FFB800' }}>
-            🎯 PASSEUR{topAssisters.length > 1 ? 'S' : ''}
-          </p>
-          {topAssisters.length === 0 ? <p className="text-xs text-[#444]">—</p> : (
-            <div className="space-y-2">
-              {topAssisters.map(s => (
-                <div key={s.player.player_id} className="flex items-center gap-2">
-                  {playerAvatar(s.player, s.player.team as 'A' | 'B' | null)}
-                  <div className="min-w-0">
-                    <p className="text-xs text-white font-semibold truncate">
-                      {s.player.profiles.first_name} {s.player.profiles.last_name}
-                    </p>
-                    <p className="font-display text-sm" style={{ color: '#FFB800' }}>
-                      {s.assists} passe{s.assists > 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Timeline des buts */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-1 h-4 rounded-full" style={{ background: 'var(--lime)' }} />
-          <h3 className="font-display text-base text-white">
-            TIMELINE ({goals.length} but{goals.length > 1 ? 's' : ''})
-          </h3>
-        </div>
-
-        <div className="space-y-2">
-          {goals.map((goal) => {
-            const isCSC = !!goal.is_own_goal
-            const scorer = isCSC ? null : getPlayer(goal.scorer_id)
-            const cscPlayer = isCSC ? getPlayer(goal.scorer_id) : null
-            const assister = goal.assist_id ? getPlayer(goal.assist_id) : null
-            const isA = goal.team === 'A'
-            const borderColor = isCSC ? '#FF6400' : isA ? '#3B82F6' : '#EF4444'
-            return (
-              <div key={goal.id}
-                className="card-dark p-3 flex items-center gap-3"
-                style={{ borderLeft: `3px solid ${borderColor}` }}
-              >
-                <div className="w-14 flex-shrink-0 text-center">
-                  <span className="font-display text-sm" style={{ color: isCSC ? '#FF6400' : isA ? '#60A5FA' : '#F87171' }}>
-                    {fmtTime(goal.minute)}
-                  </span>
-                </div>
-
-                <span className="text-base flex-shrink-0">{isCSC ? '🥅' : '⚽'}</span>
-
-                <div className="flex-1 min-w-0">
-                  {isCSC ? (
-                    <>
-                      <p className="text-sm font-semibold truncate" style={{ color: '#FF6400' }}>
-                        CSC — {cscPlayer ? `${cscPlayer.profiles.first_name} ${cscPlayer.profiles.last_name}` : '?'}
-                      </p>
-                      <p className="text-xs text-[#555]">+1 Équipe {goal.team}</p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm font-semibold text-white truncate">
-                        {scorer ? `${scorer.profiles.first_name} ${scorer.profiles.last_name}` : '—'}
-                      </p>
-                      {assister && (
-                        <p className="text-xs text-[#555] truncate">
-                          → {assister.profiles.first_name} {assister.profiles.last_name}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <span className={isA ? 'team-a-badge' : 'team-b-badge'}>ÉQ. {goal.team}</span>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Stats par équipe */}
-      <div className="grid grid-cols-2 gap-3">
-        {(['A', 'B'] as const).map(team => {
-          const teamGoals = goals.filter(g => g.team === team)
-          const isA = team === 'A'
-          // Scorers (sans CSC)
-          const scorersMap: Record<string, number> = {}
-          teamGoals.filter(g => !g.is_own_goal && g.scorer_id).forEach(g => {
-            const p = getPlayer(g.scorer_id)
-            if (p) {
-              const name = `${p.profiles.first_name} ${p.profiles.last_name}`
-              scorersMap[name] = (scorersMap[name] || 0) + 1
-            }
-          })
-          // CSC commis dans cette équipe (their own players scoring against themselves)
-          const cscInTeam = goals.filter(g => g.is_own_goal && g.team !== team)
-          return (
-            <div key={team} className="card-dark p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className={`w-3.5 h-3.5 ${isA ? 'text-blue-400' : 'text-red-400'}`} />
-                <span className={isA ? 'team-a-badge' : 'team-b-badge'}>ÉQUIPE {team}</span>
-                <span className="font-display text-sm text-white ml-auto">{teamGoals.length} buts</span>
-              </div>
-              <div className="space-y-1">
-                {Object.entries(scorersMap)
-                  .sort(([, a], [, b]) => b - a)
-                  .map(([name, count]) => (
-                    <div key={name} className="flex items-center justify-between text-xs">
-                      <span className="text-[#888] truncate">{name}</span>
-                      <span className="font-display text-sm text-white ml-2 flex-shrink-0">
-                        {count > 1 ? `${count}×` : '⚽'}
-                      </span>
-                    </div>
-                  ))}
-                {cscInTeam.map(g => {
-                  const p = getPlayer(g.scorer_id)
-                  return p ? (
-                    <div key={g.id} className="flex items-center justify-between text-xs">
-                      <span className="truncate" style={{ color: '#FF6400' }}>{p.profiles.first_name} {p.profiles.last_name}</span>
-                      <span className="ml-2 flex-shrink-0" style={{ color: '#FF6400' }}>🥅</span>
-                    </div>
-                  ) : null
-                })}
-                {Object.keys(scorersMap).length === 0 && cscInTeam.length === 0 && (
-                  <p className="text-xs text-[#444]">Aucun but</p>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────
-// PAGE PRINCIPALE
-// ─────────────────────────────────────────────
 export default function MatchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
@@ -1113,6 +46,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
   const [scoreA, setScoreA] = useState('')
   const [scoreB, setScoreB] = useState('')
   const [showEditModal, setShowEditModal] = useState(false)
+  const [myChallenge, setMyChallenge] = useState<any>(null)
 
   const loadMatch = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -1128,10 +62,35 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
       setPlayers(playersRes.data as PlayerWithProfile[])
       setIsRegistered((playersRes.data as PlayerWithProfile[]).some((p: PlayerWithProfile) => p.player_id === user.id))
     }
+
+    // Charger le défi personnel (RLS = visible uniquement par le joueur)
+    const { data: challenge } = await supabase
+      .from('match_challenges')
+      .select('*, target:target_player_id(first_name, last_name)')
+      .eq('match_id', id)
+      .eq('player_id', user.id)
+      .maybeSingle()
+    if (challenge) setMyChallenge(challenge)
+
     setLoading(false)
   }, [id, supabase])
 
   useEffect(() => { loadMatch() }, [loadMatch])
+
+  // Realtime: écouter les changements sur matches et match_goals
+  useEffect(() => {
+    const channel = supabase
+      .channel(`match-${id}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches', filter: `id=eq.${id}` }, () => {
+        loadMatch()
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'match_goals', filter: `match_id=eq.${id}` }, () => {
+        loadMatch()
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [id, supabase, loadMatch])
 
   const toggleRegistration = async () => {
     if (!currentUser || !match) return
@@ -1163,10 +122,16 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
     }).eq('id', id)
     toast.success('Score enregistré !')
     setShowScoreForm(false)
+    try {
+      await finalizeMatchResult(id as string)
+    } catch (err) {
+      console.error('Erreur calcul ELO:', err)
+    }
     await loadMatch()
   }
 
   const isCreator = match?.created_by === currentUser?.id
+  const isLive = match?.status === 'ongoing'
 
   if (loading) {
     return (
@@ -1213,6 +178,14 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               {match.title.toUpperCase()}
             </h1>
           </div>
+          {/* Indicateur LIVE pulsant */}
+          {isLive && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
+              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="font-display text-xs text-red-400 tracking-wider">LIVE</span>
+            </div>
+          )}
           <span className={statusConfig.class}>{statusConfig.label}</span>
           {isCreator && match.status !== 'completed' && match.status !== 'cancelled' && (
             <button
@@ -1304,6 +277,40 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               )}
             </div>
 
+            {/* Défi confidentiel (visible uniquement par le joueur) */}
+            {myChallenge && (() => {
+              const info = CHALLENGE_DESCRIPTIONS[myChallenge.challenge_type]
+              if (!info) return null
+              return (
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: myChallenge.is_completed
+                      ? 'rgba(170,255,0,0.06)'
+                      : 'rgba(139,92,246,0.06)',
+                    border: `1px solid ${myChallenge.is_completed ? 'rgba(170,255,0,0.2)' : 'rgba(139,92,246,0.2)'}`,
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">{info.icon}</span>
+                    <span className="font-display text-xs tracking-widest" style={{ color: myChallenge.is_completed ? 'var(--lime)' : '#8B5CF6' }}>
+                      {myChallenge.is_completed ? 'DÉFI ACCOMPLI !' : 'TON DÉFI SECRET'}
+                    </span>
+                  </div>
+                  <p className="font-display text-base text-white">{info.title}</p>
+                  <p className="text-xs text-[#888] mt-1">
+                    {info.desc}
+                    {myChallenge.challenge_type === 'binome' && myChallenge.target && (
+                      <span className="text-[#8B5CF6]"> → {myChallenge.target.first_name} {myChallenge.target.last_name}</span>
+                    )}
+                  </p>
+                  {myChallenge.is_completed && (
+                    <p className="text-xs mt-2 font-display" style={{ color: 'var(--lime)' }}>+5 ELO BONUS</p>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Score si terminé */}
             {match.status === 'completed' && match.score_equipe_a !== null && (
               <div className="card-dark p-4 text-center">
@@ -1362,7 +369,11 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
 
               <div className="space-y-2">
                 {players.map((player, i) => (
-                  <div key={player.id} className={`card-dark p-3 flex items-center gap-3 animate-slide-up delay-${Math.min(i + 1, 6)}`}>
+                  <Link
+                    key={player.id}
+                    href={`/joueur/${player.player_id}`}
+                    className={`card-dark p-3 flex items-center gap-3 animate-slide-up delay-${Math.min(i + 1, 6)} transition-all hover:border-[#333]`}
+                  >
                     <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
                       style={{
                         background: player.team === 'A' ? '#1A3A5C' : player.team === 'B' ? '#3A1A1A' : '#1A1A1A',
@@ -1391,7 +402,7 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
                         <span>{player.profiles.mvp_count}</span>
                       </div>
                     )}
-                  </div>
+                  </Link>
                 ))}
               </div>
             </div>

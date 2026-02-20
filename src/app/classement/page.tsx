@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ArrowLeft, Search, Trophy, Zap, Star } from 'lucide-react'
+import Link from 'next/link'
+import { PlayerAvatar } from '@/components/grinta/PlayerAvatar'
 import type { Profile } from '@/types/database'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -93,6 +95,17 @@ export default function ClassementPage() {
             <span className="font-display text-xs" style={{ color: 'var(--lime)' }}>LIVE</span>
           </div>
         </div>
+
+        {/* Hall of Fame link */}
+        <Link
+          href="/hall-of-fame"
+          className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-3 transition-colors hover:bg-[#151515]"
+          style={{ background: 'rgba(255,215,0,0.05)', border: '1px solid rgba(255,215,0,0.12)' }}
+        >
+          <Trophy className="w-4 h-4" style={{ color: '#FFD700' }} />
+          <span className="flex-1 font-display text-xs text-white tracking-wide">HALL OF FAME</span>
+          <span className="text-[10px] text-[#555]">→</span>
+        </Link>
 
         {/* Search */}
         <div className="relative mb-3">
@@ -222,9 +235,10 @@ export default function ClassementPage() {
               const podiumData = globalRank <= 3 ? getPodiumColor(globalRank) : null
 
               return (
-                <div
+                <Link
+                  href={`/joueur/${player.id}`}
                   key={player.id}
-                  className="rounded-xl p-3 flex items-center gap-3 transition-all"
+                  className="rounded-xl p-3 flex items-center gap-3 transition-all block"
                   style={{
                     background: isMe ? 'rgba(170,255,0,0.05)' : '#111',
                     border: `1px solid ${isMe ? 'rgba(170,255,0,0.2)' : '#1A1A1A'}`,
@@ -242,17 +256,7 @@ export default function ClassementPage() {
                   </div>
 
                   {/* Avatar */}
-                  <div
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                    style={{
-                      background: '#1A1A1A',
-                      border: '1.5px solid #2A2A2A',
-                      color: '#888',
-                      boxShadow: globalRank === 1 ? `0 0 12px ${getPodiumColor(1).glow}` : 'none',
-                    }}
-                  >
-                    {player.first_name[0]}{player.last_name[0]}
-                  </div>
+                  <PlayerAvatar player={player} size={40} />
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
@@ -283,7 +287,7 @@ export default function ClassementPage() {
                       </p>
                     )}
                   </div>
-                </div>
+                </Link>
               )
             })}
 

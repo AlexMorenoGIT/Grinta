@@ -4,828 +4,18 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { finalizeMatchResult } from '@/lib/elo';
+import { assignChallenges } from '@/lib/challenges';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Player {
-  id: string;
-  first_name: string;
-  last_name: string;
-  elo: number;
-  team: 'A' | 'B' | null;
-}
-
-interface GoalEvent {
-  id: string;
-  team: 'A' | 'B'; // équipe qui marque (bénéficiaire)
-  scorer: Player | null; // null si CSC
-  ownGoalPlayer: Player | null; // joueur fautif si CSC
-  assist: Player | null;
-  timestamp: number; // seconds
-  is_own_goal: boolean;
-}
-
-type GameState = 'LOADING' | 'PRE' | 'LIVE' | 'POST';
-type SelectionStep = 'SCORER' | 'ASSIST';
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function fmt(secs: number): string {
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function initials(p: Player): string {
-  return `${(p.first_name[0] || '?')}${(p.last_name[0] || '')}`.toUpperCase();
-}
-
-// ─── Shared style tokens ──────────────────────────────────────────────────────
-
-const TEAM_A_COLOR = '#3B82F6';
-const TEAM_A_RGB = '59,130,246';
-const TEAM_B_COLOR = '#EF4444';
-const TEAM_B_RGB = '239,68,68';
-const LIME = '#AAFF00';
-const VOID = '#080808';
-const SURFACE = '#111111';
-const BORDER = '#1C1C1C';
-
-const DISPLAY: React.CSSProperties = {
-  fontFamily: "'Barlow Condensed', sans-serif",
-  fontWeight: 900,
-  textTransform: 'uppercase' as const,
-  letterSpacing: '-0.01em',
-};
-
-const ROOT: React.CSSProperties = {
-  position: 'fixed',
-  inset: 0,
-  background: VOID,
-  color: '#F0F0F0',
-  fontFamily: "'DM Sans', sans-serif",
-  overflow: 'hidden',
-  userSelect: 'none',
-  WebkitUserSelect: 'none',
-  WebkitTapHighlightColor: 'transparent',
-};
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function Scanlines() {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundImage:
-          'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.12) 3px, rgba(0,0,0,0.12) 4px)',
-        pointerEvents: 'none',
-        zIndex: 9999,
-      }}
-    />
-  );
-}
-
-function PortraitWarning() {
-  return (
-    <>
-      <style>{`@media (orientation: portrait) { .grinta-portrait-warn { display: flex !important; } }`}</style>
-      <div
-        className="grinta-portrait-warn"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: VOID,
-          zIndex: 99999,
-          display: 'none',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '20px',
-          padding: '32px',
-        }}
-      >
-        <div style={{ fontSize: '56px', lineHeight: 1 }}>↻</div>
-        <div
-          style={{ ...DISPLAY, fontSize: '26px', color: LIME, letterSpacing: '0.1em', textAlign: 'center' }}
-        >
-          TOURNEZ VOTRE ÉCRAN
-        </div>
-        <div style={{ fontSize: '14px', color: '#555', textAlign: 'center', maxWidth: '260px', lineHeight: 1.5 }}>
-          Grinta Live est conçu exclusivement pour une utilisation en mode paysage.
-        </div>
-      </div>
-    </>
-  );
-}
-
-function TeamPreviewBlock({ team, players }: { team: 'A' | 'B'; players: Player[] }) {
-  const color = team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR;
-  const rgb = team === 'A' ? TEAM_A_RGB : TEAM_B_RGB;
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ ...DISPLAY, fontSize: '13px', color, letterSpacing: '0.15em', marginBottom: '14px' }}>
-        ÉQUIPE {team}
-      </div>
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '8px',
-          justifyContent: 'center',
-          maxWidth: '220px',
-        }}
-      >
-        {players.length === 0 ? (
-          <span style={{ color: '#3A3A3A', fontSize: '13px' }}>Aucun joueur assigné</span>
-        ) : (
-          players.map((p) => (
-            <div
-              key={p.id}
-              style={{
-                width: 42,
-                height: 42,
-                borderRadius: '50%',
-                background: `rgba(${rgb},0.12)`,
-                border: `1.5px solid rgba(${rgb},0.3)`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                ...DISPLAY,
-                fontSize: '14px',
-                color,
-              }}
-            >
-              {initials(p)}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CscSelectOverlay({
-  faultTeam,
-  players,
-  onPlayerClick,
-  onClose,
-}: {
-  faultTeam: 'A' | 'B';
-  players: Player[];
-  onPlayerClick: (p: Player) => void;
-  onClose: () => void;
-}) {
-  const color = faultTeam === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR;
-  const rgb = faultTeam === 'A' ? TEAM_A_RGB : TEAM_B_RGB;
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(4,4,4,0.92)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        animation: 'fadeIn 0.15s ease',
-      }}
-    >
-      <div
-        style={{
-          background: '#0E0E0E',
-          border: `1px solid rgba(${rgb},0.25)`,
-          borderRadius: '16px',
-          padding: '24px',
-          width: 'min(520px, 55vw)',
-          maxHeight: '85vh',
-          overflow: 'auto',
-          boxShadow: `0 0 60px rgba(${rgb},0.1)`,
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-          <div>
-            <div style={{ ...DISPLAY, fontSize: '11px', color: '#444', letterSpacing: '0.16em', marginBottom: '6px' }}>
-              ÉQUIPE {faultTeam} · CONTRE SON CAMP
-            </div>
-            <div style={{ ...DISPLAY, fontSize: 'clamp(18px, 2.5vw, 24px)', color, letterSpacing: '0.04em' }}>
-              🥅 CSC — JOUEUR FAUTIF
-            </div>
-            <div style={{ fontSize: '13px', color: '#555', marginTop: '4px' }}>
-              Sélectionne le joueur de l'équipe {faultTeam} ayant marqué contre son camp.
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: '1px solid #2A2A2A',
-              borderRadius: '8px',
-              color: '#555',
-              width: 36,
-              height: 36,
-              cursor: 'pointer',
-              fontSize: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-
-        {players.length === 0 ? (
-          <div style={{ color: '#333', fontSize: '14px', padding: '16px 0' }}>
-            Aucun joueur assigné à cette équipe.
-          </div>
-        ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
-              gap: '10px',
-            }}
-          >
-            {players.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPlayerClick(p)}
-                style={{
-                  background: `rgba(${rgb},0.07)`,
-                  border: `1.5px solid rgba(${rgb},0.2)`,
-                  borderRadius: '12px',
-                  padding: '14px 8px 12px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.15s ease',
-                }}
-                onPointerEnter={(e) => {
-                  e.currentTarget.style.background = `rgba(${rgb},0.14)`;
-                  e.currentTarget.style.borderColor = color;
-                }}
-                onPointerLeave={(e) => {
-                  e.currentTarget.style.background = `rgba(${rgb},0.07)`;
-                  e.currentTarget.style.borderColor = `rgba(${rgb},0.2)`;
-                }}
-              >
-                <div
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    background: `rgba(${rgb},0.15)`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    ...DISPLAY,
-                    fontSize: '17px',
-                    color,
-                  }}
-                >
-                  {initials(p)}
-                </div>
-                <div style={{ fontSize: '11px', color: '#888', textAlign: 'center', lineHeight: 1.3, fontWeight: 500 }}>
-                  {p.first_name}
-                  <br />
-                  <span style={{ fontWeight: 700 }}>{p.last_name}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TeamZone({
-  id,
-  team,
-  players,
-  score,
-  onGoal,
-  onCsc,
-  onRemove,
-  flashGoal,
-}: {
-  id?: string;
-  team: 'A' | 'B';
-  players: Player[];
-  score: number;
-  onGoal: () => void;
-  onCsc: () => void;
-  onRemove: () => void;
-  flashGoal: boolean;
-}) {
-  const isA = team === 'A';
-  const color = isA ? TEAM_A_COLOR : TEAM_B_COLOR;
-  const rgb = isA ? TEAM_A_RGB : TEAM_B_RGB;
-
-  return (
-    <div
-      id={id}
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '10px 14px',
-        gap: '6px',
-        position: 'relative',
-        overflow: 'hidden',
-        background: flashGoal
-          ? `rgba(${rgb},0.12)`
-          : `linear-gradient(${isA ? '90deg' : '270deg'}, rgba(${rgb},0.04) 0%, transparent 60%)`,
-        transition: 'background 0.2s ease',
-        borderRight: isA ? `1px solid ${BORDER}` : 'none',
-        borderLeft: !isA ? `1px solid ${BORDER}` : 'none',
-      }}
-    >
-      {/* Flash overlay */}
-      {flashGoal && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: `radial-gradient(ellipse at ${isA ? '0%' : '100%'} 50%, rgba(${rgb},0.25) 0%, transparent 70%)`,
-            pointerEvents: 'none',
-            animation: 'fadeIn 0.1s ease',
-          }}
-        />
-      )}
-
-      {/* Team label */}
-      <div
-        style={{
-          ...DISPLAY,
-          fontSize: 'clamp(16px, 2.2vw, 26px)',
-          color,
-          letterSpacing: '0.12em',
-          textAlign: 'center',
-        }}
-      >
-        ÉQUIPE {team}
-      </div>
-
-      {/* Score — centré pour rester visible avec le Dynamic Island */}
-      <div
-        style={{
-          ...DISPLAY,
-          fontSize: 'clamp(72px, 16vw, 148px)',
-          color,
-          lineHeight: 0.85,
-          textAlign: 'center',
-          textShadow: `0 0 60px rgba(${rgb},0.35)`,
-          letterSpacing: '-0.04em',
-          transition: 'text-shadow 0.3s ease',
-        }}
-      >
-        {score}
-      </div>
-
-      {/* Player avatars */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '5px',
-          justifyContent: 'center',
-          flex: 1,
-          alignContent: 'flex-start',
-        }}
-      >
-        {players.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: `rgba(${rgb},0.1)`,
-              border: `1.5px solid rgba(${rgb},0.25)`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              ...DISPLAY,
-              fontSize: '11px',
-              color,
-            }}
-          >
-            {initials(p)}
-          </div>
-        ))}
-      </div>
-
-      {/* Action buttons */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          gap: '6px',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <button
-          onClick={onGoal}
-          style={{
-            background: color,
-            border: 'none',
-            borderRadius: '10px',
-            color: '#000',
-            ...DISPLAY,
-            fontSize: 'clamp(12px, 1.3vw, 16px)',
-            letterSpacing: '0.06em',
-            padding: '10px 14px',
-            cursor: 'pointer',
-            flex: 1,
-            maxWidth: '140px',
-            transition: 'opacity 0.15s, transform 0.1s',
-            WebkitTapHighlightColor: 'transparent',
-          }}
-          onPointerDown={(e) => ((e.currentTarget.style.transform = 'scale(0.96)'))}
-          onPointerUp={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
-          onPointerLeave={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
-        >
-          + MARQUER
-        </button>
-        <button
-          onClick={onCsc}
-          style={{
-            background: 'rgba(255,100,0,0.08)',
-            border: '1px solid rgba(255,100,0,0.3)',
-            borderRadius: '8px',
-            color: '#FF6400',
-            ...DISPLAY,
-            fontSize: 'clamp(11px, 1.1vw, 14px)',
-            letterSpacing: '0.06em',
-            padding: '10px 10px',
-            cursor: 'pointer',
-            transition: 'border-color 0.15s, background 0.15s',
-            WebkitTapHighlightColor: 'transparent',
-          }}
-          onPointerDown={(e) => ((e.currentTarget.style.transform = 'scale(0.96)'))}
-          onPointerUp={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
-          onPointerLeave={(e) => ((e.currentTarget.style.transform = 'scale(1)'))}
-        >
-          CSC
-        </button>
-        <button
-          onClick={onRemove}
-          disabled={score === 0}
-          style={{
-            background: 'transparent',
-            border: `1px solid ${score === 0 ? '#222' : '#333'}`,
-            borderRadius: '8px',
-            color: score === 0 ? '#2A2A2A' : '#555',
-            ...DISPLAY,
-            fontSize: '13px',
-            letterSpacing: '0.04em',
-            padding: '10px 10px',
-            cursor: score === 0 ? 'not-allowed' : 'pointer',
-            transition: 'border-color 0.15s, color 0.15s',
-          }}
-        >
-          − CORRIGER
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PlayerSelectOverlay({
-  team,
-  step,
-  players,
-  pendingScorer,
-  onPlayerClick,
-  onSkipAssist,
-  onClose,
-}: {
-  team: 'A' | 'B';
-  step: SelectionStep;
-  players: Player[];
-  pendingScorer: Player | null;
-  onPlayerClick: (p: Player) => void;
-  onSkipAssist: () => void;
-  onClose: () => void;
-}) {
-  const color = team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR;
-  const rgb = team === 'A' ? TEAM_A_RGB : TEAM_B_RGB;
-
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(4,4,4,0.9)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        animation: 'fadeIn 0.15s ease',
-      }}
-    >
-      <div
-        style={{
-          background: '#0E0E0E',
-          border: `1px solid rgba(${rgb},0.25)`,
-          borderRadius: '16px',
-          padding: '24px',
-          width: 'min(520px, 55vw)',
-          maxHeight: '85vh',
-          overflow: 'auto',
-          boxShadow: `0 0 60px rgba(${rgb},0.1)`,
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-          <div>
-            <div
-              style={{ ...DISPLAY, fontSize: '11px', color: '#444', letterSpacing: '0.16em', marginBottom: '6px' }}
-            >
-              ÉQUIPE {team} · {step === 'SCORER' ? 'ÉTAPE 1/2' : 'ÉTAPE 2/2'}
-            </div>
-            <div style={{ ...DISPLAY, fontSize: 'clamp(18px, 2.5vw, 24px)', color, letterSpacing: '0.04em' }}>
-              {step === 'SCORER' ? '⚽ BUTEUR' : '🎯 PASSEUR'}
-            </div>
-            {step === 'ASSIST' && pendingScorer && (
-              <div style={{ fontSize: '13px', color: '#555', marginTop: '4px' }}>
-                But signé {pendingScorer.first_name} {pendingScorer.last_name}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: '1px solid #2A2A2A',
-              borderRadius: '8px',
-              color: '#555',
-              width: 36,
-              height: 36,
-              cursor: 'pointer',
-              fontSize: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Player grid */}
-        {players.length === 0 ? (
-          <div style={{ color: '#333', fontSize: '14px', padding: '16px 0' }}>
-            Aucun joueur assigné à cette équipe.
-          </div>
-        ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
-              gap: '10px',
-              marginBottom: step === 'ASSIST' ? '14px' : '0',
-            }}
-          >
-            {players.map((p) => {
-              const isSelected = pendingScorer?.id === p.id && step === 'ASSIST';
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => onPlayerClick(p)}
-                  style={{
-                    background: isSelected ? color : `rgba(${rgb},0.07)`,
-                    border: `1.5px solid ${isSelected ? color : `rgba(${rgb},0.2)`}`,
-                    borderRadius: '12px',
-                    padding: '14px 8px 12px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '8px',
-                    transition: 'all 0.15s ease',
-                    boxShadow: isSelected ? `0 0 20px rgba(${rgb},0.3)` : 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 48,
-                      height: 48,
-                      borderRadius: '50%',
-                      background: isSelected ? 'rgba(0,0,0,0.2)' : `rgba(${rgb},0.15)`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      ...DISPLAY,
-                      fontSize: '17px',
-                      color: isSelected ? '#000' : color,
-                    }}
-                  >
-                    {initials(p)}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      color: isSelected ? '#000' : '#888',
-                      textAlign: 'center',
-                      lineHeight: 1.3,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {p.first_name}
-                    <br />
-                    <span style={{ fontWeight: 700 }}>{p.last_name}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Skip assist */}
-        {step === 'ASSIST' && (
-          <button
-            onClick={onSkipAssist}
-            style={{
-              width: '100%',
-              background: 'transparent',
-              border: '1px solid #252525',
-              borderRadius: '8px',
-              color: '#555',
-              ...DISPLAY,
-              fontSize: '14px',
-              letterSpacing: '0.08em',
-              padding: '11px',
-              cursor: 'pointer',
-              transition: 'border-color 0.15s, color 0.15s',
-            }}
-          >
-            SANS PASSEUR →
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  player,
-  stat,
-  colorHex,
-  colorRgb,
-}: {
-  label: string;
-  player?: Player;
-  stat?: string;
-  colorHex: string;
-  colorRgb: string;
-}) {
-  return (
-    <div
-      style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: `1px solid ${BORDER}`,
-        borderRadius: '14px',
-        padding: '20px',
-      }}
-    >
-      <div style={{ ...DISPLAY, fontSize: '11px', color: '#444', letterSpacing: '0.14em', marginBottom: '14px' }}>
-        {label}
-      </div>
-      {player ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: '50%',
-              background: `rgba(${colorRgb},0.12)`,
-              border: `2px solid rgba(${colorRgb},0.35)`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              ...DISPLAY,
-              fontSize: '20px',
-              color: colorHex,
-              flexShrink: 0,
-            }}
-          >
-            {initials(player)}
-          </div>
-          <div>
-            <div style={{ fontSize: '15px', color: '#DDD', fontWeight: 600, lineHeight: 1.2 }}>
-              {player.first_name} {player.last_name}
-            </div>
-            <div style={{ ...DISPLAY, fontSize: '22px', color: colorHex, marginTop: '2px' }}>{stat}</div>
-          </div>
-        </div>
-      ) : (
-        <div style={{ color: '#333', fontSize: '14px' }}>—</div>
-      )}
-    </div>
-  );
-}
-
-// ─── Match analysis ───────────────────────────────────────────────────────────
-
-function generateMatchAnalysis(
-  events: GoalEvent[],
-  scoreA: number,
-  scoreB: number,
-  totalSeconds: number
-): string[] {
-  const insights: string[] = [];
-  if (scoreA === 0 && scoreB === 0) {
-    insights.push('Match verrouillé — aucun but malgré les efforts des deux équipes.');
-    return insights;
-  }
-
-  const winner = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null;
-  const diff = Math.abs(scoreA - scoreB);
-  const total = scoreA + scoreB;
-
-  // Résultat global
-  if (!winner) {
-    insights.push(`Match nul accroché — les deux équipes se sont neutralisées (${scoreA}-${scoreB}).`);
-  } else if (diff >= 4) {
-    insights.push(`L'équipe ${winner} a écrasé l'adversaire dans un match à sens unique (${scoreA}-${scoreB}).`);
-  } else if (diff === 1) {
-    insights.push(`Victoire à l'arraché de l'équipe ${winner} — un seul but les a séparées (${scoreA}-${scoreB}).`);
-  } else {
-    insights.push(`L'équipe ${winner} s'impose avec autorité (${scoreA}-${scoreB}).`);
-  }
-
-  // Momentum 1ère vs 2ème moitié
-  if (totalSeconds > 90) {
-    const mid = totalSeconds / 2;
-    const earlyA = events.filter(e => e.team === 'A' && e.timestamp <= mid).length;
-    const earlyB = events.filter(e => e.team === 'B' && e.timestamp <= mid).length;
-    const lateA = scoreA - earlyA;
-    const lateB = scoreB - earlyB;
-    if (earlyA > earlyB + 1 && lateB >= lateA) {
-      insights.push("L'équipe A a dominé la première période mais l'équipe B a su réagir et inverser la tendance.");
-    } else if (earlyB > earlyA + 1 && lateA >= lateB) {
-      insights.push("L'équipe B a pris le dessus en début de match, mais l'équipe A a renversé la vapeur.");
-    } else if (winner === 'A' && earlyA > earlyB && lateA > 0) {
-      insights.push("L'équipe A a dicté le rythme de bout en bout sans jamais se faire rattraper.");
-    } else if (winner === 'B' && earlyB > earlyA && lateB > 0) {
-      insights.push("L'équipe B a pris le contrôle dès l'entame et n'a jamais lâché l'avantage.");
-    }
-  }
-
-  // Comeback
-  let maxDeficitA = 0, maxDeficitB = 0, runA = 0, runB = 0;
-  for (const e of events) {
-    if (e.team === 'A') runA++; else runB++;
-    if (runA < runB) maxDeficitA = Math.max(maxDeficitA, runB - runA);
-    if (runB < runA) maxDeficitB = Math.max(maxDeficitB, runA - runB);
-  }
-  if (winner === 'A' && maxDeficitA >= 2) {
-    insights.push(`Remontée épique de l'équipe A — elle avait ${maxDeficitA} buts à remonter ! 💪`);
-  } else if (winner === 'B' && maxDeficitB >= 2) {
-    insights.push(`Remontée épique de l'équipe B — elle avait ${maxDeficitB} buts à remonter ! 💪`);
-  }
-
-  // Triplé éclair (3 buts de la même équipe en < 3 min)
-  const nonCsc = events.filter(e => !e.is_own_goal);
-  for (let i = 0; i <= nonCsc.length - 3; i++) {
-    const trio = nonCsc.slice(i, i + 3);
-    if (trio[2].timestamp - trio[0].timestamp < 180 && trio.every(e => e.team === trio[0].team)) {
-      insights.push(`⚡ Triplé éclair de l'équipe ${trio[0].team} — 3 buts en moins de 3 minutes !`);
-      break;
-    }
-  }
-
-  // CSC
-  const cscs = events.filter(e => e.is_own_goal);
-  if (cscs.length === 1) {
-    insights.push('Un but contre son camp a animé la rencontre. 🥅');
-  } else if (cscs.length >= 2) {
-    insights.push(`${cscs.length} buts contre son camp ont ponctué cette rencontre agitée. 🥅`);
-  }
-
-  // Score prolifique
-  if (total >= 8) {
-    insights.push(`Match prolifique avec ${total} buts au total — du spectacle pur !`);
-  }
-
-  return insights;
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
+import type { Player, GoalEvent, GameState, SelectionStep } from '@/components/grinta/live/types';
+import { DISPLAY, LIME, BORDER, ROOT, fmt } from '@/components/grinta/live/types';
+import { Scanlines, PortraitWarning } from '@/components/grinta/live/PortraitWarning';
+import { PreMatchScreen } from '@/components/grinta/live/PreMatchScreen';
+import { PostMatchScreen } from '@/components/grinta/live/PostMatchScreen';
+import { TeamZone } from '@/components/grinta/live/TeamZone';
+import { PlayerSelectOverlay } from '@/components/grinta/live/PlayerSelectOverlay';
+import { CscSelectOverlay } from '@/components/grinta/live/CscSelectOverlay';
+import { EventTicker } from '@/components/grinta/live/EventTicker';
 
 export default function LivePage() {
   const params = useParams();
@@ -845,46 +35,38 @@ export default function LivePage() {
   const [scoreB, setScoreB] = useState(0);
   const [events, setEvents] = useState<GoalEvent[]>([]);
 
-  // ── Goal flash animation
+  // ── Flash
   const [flashA, setFlashA] = useState(false);
   const [flashB, setFlashB] = useState(false);
 
-  // ── Selection state
+  // ── Selection
   const [showSelect, setShowSelect] = useState(false);
   const [selectTeam, setSelectTeam] = useState<'A' | 'B'>('A');
   const [selStep, setSelStep] = useState<SelectionStep>('SCORER');
   const [pendingScorer, setPendingScorer] = useState<Player | null>(null);
 
-  // ── CSC state
+  // ── CSC
   const [showCscSelect, setShowCscSelect] = useState(false);
-  const [cscFaultTeam, setCscFaultTeam] = useState<'A' | 'B'>('A'); // équipe du joueur fautif
+  const [cscFaultTeam, setCscFaultTeam] = useState<'A' | 'B'>('A');
 
-  // ── End match confirmation modal
+  // ── Modals
   const [showEndConfirm, setShowEndConfirm] = useState(false);
-
-  // ── Reset chrono confirmation modal
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  // ── Sync state
+  // ── Sync
   const [isSyncing, setIsSyncing] = useState(false);
 
   // ── Refs
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeRef = useRef(0);
   const eventsScrollRef = useRef<HTMLDivElement>(null);
+  const goalOrderRef = useRef(0);
 
-  // ── Load match data ─────────────────────────────────────────────────────────
-
+  // ── Load match data
   useEffect(() => {
     const load = async () => {
       const supabase = createClient() as any;
-
-      const { data: match } = await supabase
-        .from('matches')
-        .select('title')
-        .eq('id', matchId)
-        .single();
-
+      const { data: match } = await supabase.from('matches').select('title').eq('id', matchId).single();
       if (match) setMatchTitle(match.title);
 
       const { data: mps } = await supabase
@@ -905,14 +87,12 @@ export default function LivePage() {
         setTeamA(players.filter((p) => p.team === 'A'));
         setTeamB(players.filter((p) => p.team === 'B'));
       }
-
       setGameState('PRE');
     };
     load();
   }, [matchId]);
 
-  // ── Timer ───────────────────────────────────────────────────────────────────
-
+  // ── Timer
   useEffect(() => {
     if (isRunning) {
       timerRef.current = setInterval(() => {
@@ -922,21 +102,52 @@ export default function LivePage() {
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [isRunning]);
 
-  // ── Auto-scroll events log ──────────────────────────────────────────────────
-
+  // ── Auto-scroll events
   useEffect(() => {
     if (eventsScrollRef.current) {
       eventsScrollRef.current.scrollLeft = eventsScrollRef.current.scrollWidth;
     }
   }, [events]);
 
-  // ── Goal selection logic ────────────────────────────────────────────────────
+  // ── Sync intermédiaire : écrire chaque but en temps réel
+  const syncGoalRealtime = useCallback(async (evt: GoalEvent, newScoreA: number, newScoreB: number) => {
+    const supabase = createClient() as any;
+    goalOrderRef.current += 1;
+    // Écrire le but dans match_goals
+    await supabase.from('match_goals').insert({
+      match_id: matchId,
+      scorer_id: evt.is_own_goal ? (evt.ownGoalPlayer?.id ?? null) : (evt.scorer?.id ?? null),
+      assist_id: evt.assist?.id ?? null,
+      team: evt.team,
+      minute: evt.timestamp,
+      goal_order: goalOrderRef.current,
+      is_own_goal: evt.is_own_goal,
+    });
+    // Mettre à jour le score dans matches
+    await supabase.from('matches').update({
+      score_equipe_a: newScoreA,
+      score_equipe_b: newScoreB,
+    }).eq('id', matchId);
+    // Incrémenter CSC si applicable
+    if (evt.is_own_goal && evt.ownGoalPlayer) {
+      await supabase.rpc('increment_own_goals', { player_id: evt.ownGoalPlayer.id });
+    }
+  }, [matchId]);
 
+  // ── Passer le match en "ongoing" au lancement + assigner défis
+  const startMatch = useCallback(async () => {
+    setGameState('LIVE');
+    setIsRunning(true);
+    const supabase = createClient() as any;
+    await supabase.from('matches').update({ status: 'ongoing' }).eq('id', matchId);
+    // Assigner un défi confidentiel à chaque joueur
+    assignChallenges(matchId).catch(() => {});
+  }, [matchId]);
+
+  // ── Goal selection logic
   const openGoalSelector = useCallback((team: 'A' | 'B') => {
     setSelectTeam(team);
     setSelStep('SCORER');
@@ -950,7 +161,6 @@ export default function LivePage() {
   }, []);
 
   const confirmCsc = useCallback((faultPlayer: Player) => {
-    // L'équipe bénéficiaire est l'opposée du fautif
     const benefitTeam: 'A' | 'B' = cscFaultTeam === 'A' ? 'B' : 'A';
     const evt: GoalEvent = {
       id: Math.random().toString(36).slice(2),
@@ -962,6 +172,8 @@ export default function LivePage() {
       is_own_goal: true,
     };
     setEvents((prev) => [...prev, evt]);
+    const newA = benefitTeam === 'A' ? scoreA + 1 : scoreA;
+    const newB = benefitTeam === 'B' ? scoreB + 1 : scoreB;
     if (benefitTeam === 'A') {
       setScoreA((s) => s + 1);
       setFlashA(true);
@@ -972,7 +184,38 @@ export default function LivePage() {
       setTimeout(() => setFlashB(false), 800);
     }
     setShowCscSelect(false);
-  }, [cscFaultTeam]);
+    syncGoalRealtime(evt, newA, newB);
+  }, [cscFaultTeam, scoreA, scoreB, syncGoalRealtime]);
+
+  const confirmGoal = useCallback(
+    (scorer: Player, assist: Player | null) => {
+      const evt: GoalEvent = {
+        id: Math.random().toString(36).slice(2),
+        team: selectTeam,
+        scorer,
+        ownGoalPlayer: null,
+        assist,
+        timestamp: timeRef.current,
+        is_own_goal: false,
+      };
+      setEvents((prev) => [...prev, evt]);
+      const newA = selectTeam === 'A' ? scoreA + 1 : scoreA;
+      const newB = selectTeam === 'B' ? scoreB + 1 : scoreB;
+      if (selectTeam === 'A') {
+        setScoreA((s) => s + 1);
+        setFlashA(true);
+        setTimeout(() => setFlashA(false), 800);
+      } else {
+        setScoreB((s) => s + 1);
+        setFlashB(true);
+        setTimeout(() => setFlashB(false), 800);
+      }
+      setShowSelect(false);
+      setPendingScorer(null);
+      syncGoalRealtime(evt, newA, newB);
+    },
+    [selectTeam, scoreA, scoreB, syncGoalRealtime]
+  );
 
   const handlePlayerClick = useCallback(
     (player: Player) => {
@@ -987,33 +230,6 @@ export default function LivePage() {
     [selStep, pendingScorer, selectTeam]
   );
 
-  const confirmGoal = useCallback(
-    (scorer: Player, assist: Player | null) => {
-      const evt: GoalEvent = {
-        id: Math.random().toString(36).slice(2),
-        team: selectTeam,
-        scorer,
-        ownGoalPlayer: null,
-        assist,
-        timestamp: timeRef.current,
-        is_own_goal: false,
-      };
-      setEvents((prev) => [...prev, evt]);
-      if (selectTeam === 'A') {
-        setScoreA((s) => s + 1);
-        setFlashA(true);
-        setTimeout(() => setFlashA(false), 800);
-      } else {
-        setScoreB((s) => s + 1);
-        setFlashB(true);
-        setTimeout(() => setFlashB(false), 800);
-      }
-      setShowSelect(false);
-      setPendingScorer(null);
-    },
-    [selectTeam]
-  );
-
   const removeLastGoal = useCallback((team: 'A' | 'B') => {
     setEvents((prev) => {
       const lastIdx = [...prev].reverse().findIndex((e) => e.team === team);
@@ -1021,11 +237,27 @@ export default function LivePage() {
       const actualIdx = prev.length - 1 - lastIdx;
       return prev.filter((_, i) => i !== actualIdx);
     });
+    const newA = team === 'A' ? Math.max(0, scoreA - 1) : scoreA;
+    const newB = team === 'B' ? Math.max(0, scoreB - 1) : scoreB;
     if (team === 'A') setScoreA((s) => Math.max(0, s - 1));
     else setScoreB((s) => Math.max(0, s - 1));
-  }, []);
-
-  // ── End match ───────────────────────────────────────────────────────────────
+    // Supprimer le dernier but de cette équipe dans Supabase
+    goalOrderRef.current = Math.max(0, goalOrderRef.current - 1);
+    const supabase = createClient() as any;
+    supabase.from('match_goals')
+      .delete()
+      .eq('match_id', matchId)
+      .eq('team', team)
+      .order('goal_order', { ascending: false })
+      .limit(1)
+      .then(() => {
+        // Mettre à jour le score
+        supabase.from('matches').update({
+          score_equipe_a: newA,
+          score_equipe_b: newB,
+        }).eq('id', matchId);
+      });
+  }, [matchId, scoreA, scoreB]);
 
   const confirmEndMatch = useCallback(() => {
     setIsRunning(false);
@@ -1033,21 +265,14 @@ export default function LivePage() {
     setGameState('POST');
   }, []);
 
-  // ── Sync to Supabase ────────────────────────────────────────────────────────
-
+  // ── Sync final : les buts sont déjà écrits en temps réel, on finalise juste le match
   const syncToSupabase = async () => {
     setIsSyncing(true);
     const supabase = createClient() as any;
 
-    // 1. Mettre à jour le match (score + statut + durée)
     const { error: matchError } = await supabase
       .from('matches')
-      .update({
-        score_equipe_a: scoreA,
-        score_equipe_b: scoreB,
-        status: 'completed',
-        duration_seconds: time,
-      })
+      .update({ score_equipe_a: scoreA, score_equipe_b: scoreB, status: 'completed', duration_seconds: time })
       .eq('id', matchId);
 
     if (matchError) {
@@ -1056,71 +281,20 @@ export default function LivePage() {
       return;
     }
 
-    // 2. Supprimer les buts existants (re-sync idempotent)
-    await supabase.from('match_goals').delete().eq('match_id', matchId);
-
-    // 3. Insérer tous les buts
-    if (events.length > 0) {
-      const { error: goalsError } = await supabase.from('match_goals').insert(
-        events.map((evt, i) => ({
-          match_id: matchId,
-          scorer_id: evt.is_own_goal ? (evt.ownGoalPlayer?.id ?? null) : (evt.scorer?.id ?? null),
-          assist_id: evt.assist?.id ?? null,
-          team: evt.team,
-          minute: evt.timestamp,
-          goal_order: i + 1,
-          is_own_goal: evt.is_own_goal,
-        }))
-      );
-
-      if (goalsError) {
-        toast.error('Erreur sauvegarde buts : ' + goalsError.message);
-        setIsSyncing(false);
-        return;
-      }
-    }
-
-    // 4. Incrémenter own_goals pour les joueurs fautifs de CSC
-    const cscEvents = events.filter((e) => e.is_own_goal && e.ownGoalPlayer);
-    for (const cscEvt of cscEvents) {
-      await supabase.rpc('increment_own_goals', { player_id: cscEvt.ownGoalPlayer!.id });
+    // Calcul ELO post-match
+    try {
+      await finalizeMatchResult(matchId);
+    } catch (err) {
+      console.error('Erreur calcul ELO:', err);
     }
 
     setIsSyncing(false);
     router.push(`/match/${matchId}?tab=stats`);
   };
 
-  // ── Stats computation ───────────────────────────────────────────────────────
-
-  const scorerMap = events.reduce(
-    (acc: Record<string, { player: Player; goals: number }>, e) => {
-      if (e.is_own_goal || !e.scorer) return acc; // exclure les CSC
-      if (!acc[e.scorer.id]) acc[e.scorer.id] = { player: e.scorer, goals: 0 };
-      acc[e.scorer.id].goals++;
-      return acc;
-    },
-    {}
-  );
-
-  const assistMap = events.reduce(
-    (acc: Record<string, { player: Player; assists: number }>, e) => {
-      if (!e.assist) return acc;
-      if (!acc[e.assist.id]) acc[e.assist.id] = { player: e.assist, assists: 0 };
-      acc[e.assist.id].assists++;
-      return acc;
-    },
-    {}
-  );
-
-  const bestScorer = Object.values(scorerMap).sort((a, b) => b.goals - a.goals)[0];
-  const bestAssist = Object.values(assistMap).sort((a, b) => b.assists - a.assists)[0];
   const playersForSel = selectTeam === 'A' ? teamA : teamB;
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // SCREENS
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  // ── LOADING ─────────────────────────────────────────────────────────────────
+  // ── SCREENS ──
 
   if (gameState === 'LOADING') {
     return (
@@ -1130,452 +304,65 @@ export default function LivePage() {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <div
             style={{
-              width: 48,
-              height: 48,
-              border: `2px solid ${LIME}`,
-              borderTopColor: 'transparent',
-              borderRadius: '50%',
-              animation: 'spin 0.8s linear infinite',
+              width: 48, height: 48, border: `2px solid ${LIME}`, borderTopColor: 'transparent',
+              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
             }}
           />
-          <div style={{ ...DISPLAY, fontSize: '20px', color: LIME, letterSpacing: '0.2em' }}>
-            CHARGEMENT
-          </div>
+          <div style={{ ...DISPLAY, fontSize: '20px', color: LIME, letterSpacing: '0.2em' }}>CHARGEMENT</div>
         </div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
 
-  // ── PRE ─────────────────────────────────────────────────────────────────────
-
   if (gameState === 'PRE') {
     return (
-      <div
-        style={{
-          ...ROOT,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '28px',
-          padding: '24px',
-        }}
-      >
-        <Scanlines />
-        <PortraitWarning />
-
-        {/* Logo / title */}
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ ...DISPLAY, fontSize: '11px', color: '#444', letterSpacing: '0.2em', marginBottom: '8px' }}>
-            GRINTA LIVE
-          </div>
-          <div
-            style={{
-              ...DISPLAY,
-              fontSize: 'clamp(22px, 4vw, 48px)',
-              color: '#EEE',
-              letterSpacing: '0.06em',
-              maxWidth: '70vw',
-              textAlign: 'center',
-            }}
-          >
-            {matchTitle}
-          </div>
-        </div>
-
-        {/* Teams preview */}
-        <div
-          style={{
-            display: 'flex',
-            gap: '40px',
-            alignItems: 'center',
-            background: 'rgba(255,255,255,0.02)',
-            border: `1px solid ${BORDER}`,
-            borderRadius: '16px',
-            padding: '24px 40px',
-          }}
-        >
-          <TeamPreviewBlock team="A" players={teamA} />
-          <div
-            style={{
-              ...DISPLAY,
-              fontSize: '28px',
-              color: '#2A2A2A',
-              letterSpacing: '0.12em',
-              flexShrink: 0,
-            }}
-          >
-            VS
-          </div>
-          <TeamPreviewBlock team="B" players={teamB} />
-        </div>
-
-        {/* Start CTA */}
-        <button
-          onClick={() => {
-            setGameState('LIVE');
-            setIsRunning(true);
-          }}
-          style={{
-            background: LIME,
-            border: 'none',
-            borderRadius: '12px',
-            color: '#000',
-            ...DISPLAY,
-            fontSize: 'clamp(18px, 2.5vw, 26px)',
-            letterSpacing: '0.08em',
-            padding: '16px 56px',
-            cursor: 'pointer',
-            boxShadow: '0 0 32px rgba(170,255,0,0.25)',
-            transition: 'box-shadow 0.2s, transform 0.1s',
-          }}
-          onPointerDown={(e) => (e.currentTarget.style.transform = 'scale(0.97)')}
-          onPointerUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-          onPointerLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-        >
-          ▶ LANCER LE MATCH
-        </button>
-
-        <button
-          onClick={() => router.back()}
-          style={{
-            background: 'transparent',
-            border: `1px solid ${BORDER}`,
-            borderRadius: '8px',
-            color: '#444',
-            ...DISPLAY,
-            fontSize: '13px',
-            letterSpacing: '0.1em',
-            padding: '8px 22px',
-            cursor: 'pointer',
-          }}
-        >
-          ← RETOUR
-        </button>
-      </div>
+      <PreMatchScreen
+        matchTitle={matchTitle}
+        teamA={teamA}
+        teamB={teamB}
+        onStart={startMatch}
+        onBack={() => router.back()}
+      />
     );
   }
-
-  // ── POST ─────────────────────────────────────────────────────────────────────
 
   if (gameState === 'POST') {
-    const winner = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null;
-
-    // Tied scorers/assists
-    const maxGoals = Object.values(scorerMap).reduce((m, s) => Math.max(m, s.goals), 0);
-    const topScorers = maxGoals > 0 ? Object.values(scorerMap).filter(s => s.goals === maxGoals) : [];
-    const maxAssists = Object.values(assistMap).reduce((m, s) => Math.max(m, s.assists), 0);
-    const topAssisters = maxAssists > 0 ? Object.values(assistMap).filter(s => s.assists === maxAssists) : [];
-
-    // Match analysis
-    const analysis = generateMatchAnalysis(events, scoreA, scoreB, time);
-
     return (
-      <div style={{ ...ROOT, overflow: 'auto', animation: 'fadeIn 0.4s ease' }}>
-      <Scanlines />
-      <PortraitWarning />
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        .post-wrap {
-          min-height: 100%;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          padding: max(16px, env(safe-area-inset-top, 16px)) max(20px, env(safe-area-inset-right, 20px)) max(16px, env(safe-area-inset-bottom, 16px)) max(20px, env(safe-area-inset-left, 20px));
-        }
-        .post-grid {
-          display: grid;
-          gap: 12px;
-          flex: 1;
-          min-height: 0;
-        }
-        @media (orientation: landscape) {
-          .post-grid { grid-template-columns: 42% 1fr; }
-          .post-left { overflow-y: auto; }
-          .post-timeline { overflow-y: auto; }
-        }
-        @media (orientation: portrait) {
-          .post-grid { grid-template-columns: 1fr; }
-          .post-timeline { max-height: 40vh; overflow-y: auto; }
-        }
-      `}</style>
-
-      <div className="post-wrap">
-        {/* ── Header ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <div style={{ ...DISPLAY, fontSize: 'clamp(16px, 2.5vw, 28px)', color: LIME, letterSpacing: '0.1em' }}>
-            STATS FINALES
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ ...DISPLAY, fontSize: '12px', color: '#444', letterSpacing: '0.08em' }}>
-              {fmt(time)}
-            </div>
-            {winner ? (
-              <div style={{
-                ...DISPLAY, fontSize: '12px', letterSpacing: '0.08em', borderRadius: '6px', padding: '3px 10px',
-                color: winner === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR,
-                background: winner === 'A' ? `rgba(${TEAM_A_RGB},0.1)` : `rgba(${TEAM_B_RGB},0.1)`,
-                border: `1px solid ${winner === 'A' ? `rgba(${TEAM_A_RGB},0.3)` : `rgba(${TEAM_B_RGB},0.3)`}`,
-              }}>
-                ▲ ÉQ. {winner}
-              </div>
-            ) : (
-              <div style={{ ...DISPLAY, fontSize: '12px', color: '#555', letterSpacing: '0.08em' }}>MATCH NUL</div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Two-column grid ── */}
-        <div className="post-grid">
-
-          {/* ── LEFT: Score + Analysis + Top performers ── */}
-          <div className="post-left" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-
-            {/* Score card */}
-            <div style={{
-              background: 'rgba(255,255,255,0.02)', border: `1px solid ${BORDER}`, borderRadius: '14px',
-              padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px',
-              flexShrink: 0,
-            }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ ...DISPLAY, fontSize: '10px', color: TEAM_A_COLOR, letterSpacing: '0.15em', marginBottom: '2px' }}>ÉQUIPE A</div>
-                <div style={{ ...DISPLAY, fontSize: 'clamp(40px, 7vw, 72px)', color: TEAM_A_COLOR, lineHeight: 1, textShadow: `0 0 24px rgba(${TEAM_A_RGB},0.4)` }}>
-                  {scoreA}
-                </div>
-              </div>
-              <div style={{ ...DISPLAY, fontSize: '22px', color: '#2A2A2A' }}>—</div>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ ...DISPLAY, fontSize: '10px', color: TEAM_B_COLOR, letterSpacing: '0.15em', marginBottom: '2px' }}>ÉQUIPE B</div>
-                <div style={{ ...DISPLAY, fontSize: 'clamp(40px, 7vw, 72px)', color: TEAM_B_COLOR, lineHeight: 1, textShadow: `0 0 24px rgba(${TEAM_B_RGB},0.4)` }}>
-                  {scoreB}
-                </div>
-              </div>
-            </div>
-
-            {/* Analysis */}
-            {analysis.length > 0 && (
-              <div style={{ background: 'rgba(170,255,0,0.04)', border: '1px solid rgba(170,255,0,0.12)', borderRadius: '12px', padding: '12px 14px', flexShrink: 0 }}>
-                <div style={{ ...DISPLAY, fontSize: '10px', color: LIME, letterSpacing: '0.16em', marginBottom: '8px' }}>⚡ ANALYSE DU MATCH</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  {analysis.map((line, i) => (
-                    <p key={i} style={{ fontSize: '12px', color: '#AAA', lineHeight: 1.4, margin: 0 }}>{line}</p>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Top scorers */}
-            <div style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${BORDER}`, borderRadius: '12px', padding: '12px 14px', flexShrink: 0 }}>
-              <div style={{ ...DISPLAY, fontSize: '10px', color: LIME, letterSpacing: '0.14em', marginBottom: '8px' }}>⚽ BUTEUR{topScorers.length > 1 ? 'S' : ''} DU MATCH</div>
-              {topScorers.length === 0 ? (
-                <div style={{ color: '#333', fontSize: '13px' }}>—</div>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {topScorers.map(s => (
-                    <div key={s.player.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: `rgba(170,255,0,0.12)`, border: '1.5px solid rgba(170,255,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...DISPLAY, fontSize: '11px', color: LIME }}>
-                        {initials(s.player)}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '12px', color: '#DDD', fontWeight: 600 }}>{s.player.first_name} {s.player.last_name}</div>
-                        <div style={{ ...DISPLAY, fontSize: '14px', color: LIME }}>{s.goals} but{s.goals > 1 ? 's' : ''}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Top assists */}
-            <div style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${BORDER}`, borderRadius: '12px', padding: '12px 14px', flexShrink: 0 }}>
-              <div style={{ ...DISPLAY, fontSize: '10px', color: '#FFB800', letterSpacing: '0.14em', marginBottom: '8px' }}>🎯 PASSEUR{topAssisters.length > 1 ? 'S' : ''}</div>
-              {topAssisters.length === 0 ? (
-                <div style={{ color: '#333', fontSize: '13px' }}>—</div>
-              ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                  {topAssisters.map(s => (
-                    <div key={s.player.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,184,0,0.12)', border: '1.5px solid rgba(255,184,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', ...DISPLAY, fontSize: '11px', color: '#FFB800' }}>
-                        {initials(s.player)}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '12px', color: '#DDD', fontWeight: 600 }}>{s.player.first_name} {s.player.last_name}</div>
-                        <div style={{ ...DISPLAY, fontSize: '14px', color: '#FFB800' }}>{s.assists} passe{s.assists > 1 ? 's' : ''}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── RIGHT: Timeline (vertical scroll) ── */}
-          <div className="post-timeline" style={{
-            background: 'rgba(255,255,255,0.02)', border: `1px solid ${BORDER}`, borderRadius: '14px', padding: '12px 14px',
-          }}>
-            <div style={{ ...DISPLAY, fontSize: '10px', color: '#444', letterSpacing: '0.14em', marginBottom: '10px' }}>
-              TIMELINE DES BUTS ({events.length})
-            </div>
-            {events.length === 0 ? (
-              <div style={{ color: '#333', fontSize: '13px' }}>Aucun but enregistré.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                {events.map((evt, i) => {
-                  const isCSC = evt.is_own_goal;
-                  const teamColor = evt.team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR;
-                  const teamRgb = evt.team === 'A' ? TEAM_A_RGB : TEAM_B_RGB;
-                  return (
-                    <div key={evt.id} style={{
-                      display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px',
-                      background: isCSC ? 'rgba(255,100,0,0.06)' : `rgba(${teamRgb},0.05)`,
-                      border: `1px solid ${isCSC ? 'rgba(255,100,0,0.15)' : `rgba(${teamRgb},0.12)`}`,
-                      opacity: 0, animation: `slideUp 0.25s ease ${i * 0.05}s forwards`,
-                    }}>
-                      <div style={{ ...DISPLAY, fontSize: '11px', color: '#444', letterSpacing: '0.04em', flexShrink: 0, width: 34 }}>
-                        {fmt(evt.timestamp)}
-                      </div>
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: isCSC ? 'rgba(255,100,0,0.15)' : `rgba(${teamRgb},0.15)`, border: `1.5px solid ${isCSC ? '#FF6400' : teamColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', ...DISPLAY, fontSize: '10px', color: isCSC ? '#FF6400' : teamColor, flexShrink: 0 }}>
-                        {isCSC ? '🥅' : (evt.scorer ? initials(evt.scorer) : '?')}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {isCSC && evt.ownGoalPlayer ? (
-                          <>
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: '#FF6400' }}>
-                              CSC — {evt.ownGoalPlayer.first_name} {evt.ownGoalPlayer.last_name}
-                            </div>
-                            <div style={{ fontSize: '10px', color: '#555' }}>
-                              +1 Équipe {evt.team}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: '#DDD', textOverflow: 'ellipsis' }}>
-                              {evt.scorer?.first_name} {evt.scorer?.last_name}
-                            </div>
-                            {evt.assist && (
-                              <div style={{ fontSize: '10px', color: '#555' }}>
-                                → {evt.assist.first_name} {evt.assist.last_name}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <div style={{ ...DISPLAY, fontSize: '10px', color: teamColor, borderRadius: '4px', padding: '2px 6px', background: `rgba(${teamRgb},0.1)`, border: `1px solid rgba(${teamRgb},0.2)`, flexShrink: 0 }}>
-                        ÉQ {evt.team}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Footer actions ── */}
-        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button
-            onClick={() => setGameState('LIVE')}
-            style={{ background: 'transparent', border: `1px solid ${BORDER}`, borderRadius: '8px', color: '#555', ...DISPLAY, fontSize: '13px', letterSpacing: '0.08em', padding: '10px 20px', cursor: 'pointer' }}
-          >
-            ← REPRENDRE
-          </button>
-          <button
-            onClick={syncToSupabase}
-            disabled={isSyncing}
-            style={{ background: isSyncing ? '#333' : LIME, border: 'none', borderRadius: '8px', color: isSyncing ? '#666' : '#000', ...DISPLAY, fontSize: '14px', letterSpacing: '0.06em', padding: '10px 28px', cursor: isSyncing ? 'not-allowed' : 'pointer', transition: 'background 0.2s', boxShadow: isSyncing ? 'none' : '0 0 20px rgba(170,255,0,0.2)' }}
-          >
-            {isSyncing ? 'SYNC...' : '✓ VALIDER ET ENVOYER'}
-          </button>
-        </div>
-      </div>
-    </div>
+      <PostMatchScreen
+        events={events}
+        scoreA={scoreA}
+        scoreB={scoreB}
+        time={time}
+        onResume={() => setGameState('LIVE')}
+        onSync={syncToSupabase}
+        isSyncing={isSyncing}
+      />
     );
   }
 
-  // ── LIVE ─────────────────────────────────────────────────────────────────────
-
+  // ── LIVE ──
   return (
     <div style={{ ...ROOT, display: 'flex', flexDirection: 'column' }}>
       <Scanlines />
       <PortraitWarning />
 
-      {/* Safe-area padding for Dynamic Island / notch in landscape */}
       <style>{`
         #team-zone-a { padding-left: max(14px, env(safe-area-inset-left, 14px)); }
         #team-zone-b { padding-right: max(14px, env(safe-area-inset-right, 14px)); }
+        @keyframes pulseLime { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       `}</style>
 
       {/* End match confirmation modal */}
       {showEndConfirm && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.85)',
-            zIndex: 200,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(4px)',
-          }}
-        >
-          <div
-            style={{
-              background: '#111',
-              border: `1px solid #2A2A2A`,
-              borderRadius: '16px',
-              padding: '28px 32px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '20px',
-              minWidth: '260px',
-            }}
-          >
-            <div style={{ ...DISPLAY, fontSize: '22px', color: '#F0F0F0', letterSpacing: '0.06em' }}>
-              TERMINER LE MATCH ?
-            </div>
-            <div style={{ fontSize: '13px', color: '#555', textAlign: 'center' }}>
-              Le chrono sera arrêté et les statistiques<br />seront générées.
-            </div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: '#111', border: '1px solid #2A2A2A', borderRadius: '16px', padding: '28px 32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', minWidth: '260px' }}>
+            <div style={{ ...DISPLAY, fontSize: '22px', color: '#F0F0F0', letterSpacing: '0.06em' }}>TERMINER LE MATCH ?</div>
+            <div style={{ fontSize: '13px', color: '#555', textAlign: 'center' }}>Le chrono sera arrêté et les statistiques<br />seront générées.</div>
             <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
-              <button
-                onClick={() => setShowEndConfirm(false)}
-                style={{
-                  flex: 1,
-                  background: 'transparent',
-                  border: '1px solid #2A2A2A',
-                  borderRadius: '10px',
-                  color: '#666',
-                  ...DISPLAY,
-                  fontSize: '14px',
-                  padding: '12px',
-                  cursor: 'pointer',
-                  letterSpacing: '0.06em',
-                }}
-              >
-                ANNULER
-              </button>
-              <button
-                onClick={confirmEndMatch}
-                style={{
-                  flex: 1,
-                  background: 'rgba(239,68,68,0.15)',
-                  border: '1px solid rgba(239,68,68,0.5)',
-                  borderRadius: '10px',
-                  color: TEAM_B_COLOR,
-                  ...DISPLAY,
-                  fontSize: '14px',
-                  padding: '12px',
-                  cursor: 'pointer',
-                  letterSpacing: '0.06em',
-                  fontWeight: 'bold',
-                }}
-              >
-                ■ TERMINER
-              </button>
+              <button onClick={() => setShowEndConfirm(false)} style={{ flex: 1, background: 'transparent', border: '1px solid #2A2A2A', borderRadius: '10px', color: '#666', ...DISPLAY, fontSize: '14px', padding: '12px', cursor: 'pointer', letterSpacing: '0.06em' }}>ANNULER</button>
+              <button onClick={confirmEndMatch} style={{ flex: 1, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', borderRadius: '10px', color: '#EF4444', ...DISPLAY, fontSize: '14px', padding: '12px', cursor: 'pointer', letterSpacing: '0.06em', fontWeight: 'bold' }}>■ TERMINER</button>
             </div>
           </div>
         </div>
@@ -1583,83 +370,18 @@ export default function LivePage() {
 
       {/* Reset chrono confirmation modal */}
       {showResetConfirm && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.85)',
-            zIndex: 200,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(4px)',
-          }}
-        >
-          <div
-            style={{
-              background: '#111',
-              border: `1px solid #2A2A2A`,
-              borderRadius: '16px',
-              padding: '28px 32px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '20px',
-              minWidth: '260px',
-            }}
-          >
-            <div style={{ ...DISPLAY, fontSize: '22px', color: '#F0F0F0', letterSpacing: '0.06em' }}>
-              RÉINITIALISER LE CHRONO ?
-            </div>
-            <div style={{ fontSize: '13px', color: '#555', textAlign: 'center' }}>
-              Le temps repassera à 00:00.<br />Les buts et le score ne sont pas effacés.
-            </div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: '#111', border: '1px solid #2A2A2A', borderRadius: '16px', padding: '28px 32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', minWidth: '260px' }}>
+            <div style={{ ...DISPLAY, fontSize: '22px', color: '#F0F0F0', letterSpacing: '0.06em' }}>RÉINITIALISER LE CHRONO ?</div>
+            <div style={{ fontSize: '13px', color: '#555', textAlign: 'center' }}>Le temps repassera à 00:00.<br />Les buts et le score ne sont pas effacés.</div>
             <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
-              <button
-                onClick={() => setShowResetConfirm(false)}
-                style={{
-                  flex: 1,
-                  background: 'transparent',
-                  border: '1px solid #2A2A2A',
-                  borderRadius: '10px',
-                  color: '#666',
-                  ...DISPLAY,
-                  fontSize: '14px',
-                  padding: '12px',
-                  cursor: 'pointer',
-                  letterSpacing: '0.06em',
-                }}
-              >
-                ANNULER
-              </button>
-              <button
-                onClick={() => {
-                  setIsRunning(false);
-                  setTime(0);
-                  timeRef.current = 0;
-                  setShowResetConfirm(false);
-                }}
-                style={{
-                  flex: 1,
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid #3A3A3A',
-                  borderRadius: '10px',
-                  color: '#CCC',
-                  ...DISPLAY,
-                  fontSize: '14px',
-                  padding: '12px',
-                  cursor: 'pointer',
-                  letterSpacing: '0.06em',
-                }}
-              >
-                ↺ RESET
-              </button>
+              <button onClick={() => setShowResetConfirm(false)} style={{ flex: 1, background: 'transparent', border: '1px solid #2A2A2A', borderRadius: '10px', color: '#666', ...DISPLAY, fontSize: '14px', padding: '12px', cursor: 'pointer', letterSpacing: '0.06em' }}>ANNULER</button>
+              <button onClick={() => { setIsRunning(false); setTime(0); timeRef.current = 0; setShowResetConfirm(false); }} style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid #3A3A3A', borderRadius: '10px', color: '#CCC', ...DISPLAY, fontSize: '14px', padding: '12px', cursor: 'pointer', letterSpacing: '0.06em' }}>↺ RESET</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Player selection overlay (buts normaux) */}
       {showSelect && (
         <PlayerSelectOverlay
           team={selectTeam}
@@ -1672,7 +394,6 @@ export default function LivePage() {
         />
       )}
 
-      {/* CSC selection overlay */}
       {showCscSelect && (
         <CscSelectOverlay
           faultTeam={cscFaultTeam}
@@ -1682,293 +403,51 @@ export default function LivePage() {
         />
       )}
 
-      {/* ── Header bar ──────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          height: '42px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 14px',
-          borderBottom: `1px solid ${BORDER}`,
-          flexShrink: 0,
-          zIndex: 10,
-        }}
-      >
-        <button
-          onClick={() => router.back()}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#444',
-            ...DISPLAY,
-            fontSize: '13px',
-            letterSpacing: '0.06em',
-            cursor: 'pointer',
-            padding: '0 6px',
-          }}
-        >
-          ← RETOUR
-        </button>
-
-        <div
-          style={{
-            ...DISPLAY,
-            fontSize: 'clamp(13px, 2vw, 19px)',
-            color: '#888',
-            letterSpacing: '0.1em',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: '40%',
-          }}
-        >
-          {matchTitle}
-        </div>
-
+      {/* Header bar */}
+      <div style={{ height: '42px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0, zIndex: 10 }}>
+        <button onClick={() => router.back()} style={{ background: 'transparent', border: 'none', color: '#444', ...DISPLAY, fontSize: '13px', letterSpacing: '0.06em', cursor: 'pointer', padding: '0 6px' }}>← RETOUR</button>
+        <div style={{ ...DISPLAY, fontSize: 'clamp(13px, 2vw, 19px)', color: '#888', letterSpacing: '0.1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '40%' }}>{matchTitle}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background: isRunning ? LIME : '#3A3A3A',
-              boxShadow: isRunning ? `0 0 8px ${LIME}` : 'none',
-              animation: isRunning ? 'pulseLime 1.5s ease-in-out infinite' : 'none',
-              transition: 'background 0.3s',
-            }}
-          />
-          <span
-            style={{
-              ...DISPLAY,
-              fontSize: '12px',
-              color: isRunning ? LIME : '#444',
-              letterSpacing: '0.08em',
-              transition: 'color 0.3s',
-            }}
-          >
-            {isRunning ? 'EN COURS' : 'PAUSE'}
-          </span>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: isRunning ? LIME : '#3A3A3A', boxShadow: isRunning ? `0 0 8px ${LIME}` : 'none', animation: isRunning ? 'pulseLime 1.5s ease-in-out infinite' : 'none', transition: 'background 0.3s' }} />
+          <span style={{ ...DISPLAY, fontSize: '12px', color: isRunning ? LIME : '#444', letterSpacing: '0.08em', transition: 'color 0.3s' }}>{isRunning ? 'EN COURS' : 'PAUSE'}</span>
         </div>
       </div>
 
-      {/* ── Main play area ──────────────────────────────────────────────────── */}
+      {/* Main play area */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+        <TeamZone id="team-zone-a" team="A" players={teamA} score={scoreA} onGoal={() => openGoalSelector('A')} onCsc={() => openCscSelector('A')} onRemove={() => removeLastGoal('A')} flashGoal={flashA} />
 
-        {/* Team A */}
-        <TeamZone
-          id="team-zone-a"
-          team="A"
-          players={teamA}
-          score={scoreA}
-          onGoal={() => openGoalSelector('A')}
-          onCsc={() => openCscSelector('A')}
-          onRemove={() => removeLastGoal('A')}
-          flashGoal={flashA}
-        />
-
-        {/* Center column: chrono + controls */}
-        <div
-          style={{
-            width: 'clamp(160px, 20vw, 240px)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '10px',
-            padding: '8px 12px',
-            flexShrink: 0,
-            position: 'relative',
-            background: 'rgba(255,255,255,0.01)',
-          }}
-        >
-          {/* Corner decorators */}
+        {/* Center column */}
+        <div style={{ width: 'clamp(160px, 20vw, 240px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '8px 12px', flexShrink: 0, position: 'relative', background: 'rgba(255,255,255,0.01)' }}>
           {[
             { top: 8, left: 8, borderTop: `2px solid ${BORDER}`, borderLeft: `2px solid ${BORDER}` },
             { top: 8, right: 8, borderTop: `2px solid ${BORDER}`, borderRight: `2px solid ${BORDER}` },
             { bottom: 8, left: 8, borderBottom: `2px solid ${BORDER}`, borderLeft: `2px solid ${BORDER}` },
             { bottom: 8, right: 8, borderBottom: `2px solid ${BORDER}`, borderRight: `2px solid ${BORDER}` },
           ].map((s, i) => (
-            <div
-              key={i}
-              style={{
-                position: 'absolute',
-                width: 12,
-                height: 12,
-                ...s,
-              }}
-            />
+            <div key={i} style={{ position: 'absolute', width: 12, height: 12, ...s }} />
           ))}
 
-          {/* Chrono */}
-          <div
-            style={{
-              ...DISPLAY,
-              fontSize: 'clamp(34px, 5.5vw, 68px)',
-              color: isRunning ? LIME : '#CCC',
-              letterSpacing: '0.02em',
-              lineHeight: 1,
-              textShadow: isRunning ? '0 0 32px rgba(170,255,0,0.45)' : 'none',
-              fontVariantNumeric: 'tabular-nums',
-              transition: 'color 0.4s, text-shadow 0.4s',
-            }}
-          >
+          <div style={{ ...DISPLAY, fontSize: 'clamp(34px, 5.5vw, 68px)', color: isRunning ? LIME : '#CCC', letterSpacing: '0.02em', lineHeight: 1, textShadow: isRunning ? '0 0 32px rgba(170,255,0,0.45)' : 'none', fontVariantNumeric: 'tabular-nums', transition: 'color 0.4s, text-shadow 0.4s' }}>
             {fmt(time)}
           </div>
 
-          {/* Start / Pause + Reset */}
           <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              onClick={() => setIsRunning((r) => !r)}
-              style={{
-                background: isRunning ? 'rgba(239,68,68,0.1)' : 'rgba(170,255,0,0.1)',
-                border: `1px solid ${isRunning ? TEAM_B_COLOR : LIME}`,
-                borderRadius: '8px',
-                color: isRunning ? TEAM_B_COLOR : LIME,
-                ...DISPLAY,
-                fontSize: '12px',
-                letterSpacing: '0.06em',
-                padding: '8px 10px',
-                cursor: 'pointer',
-                minWidth: '64px',
-                transition: 'all 0.2s',
-              }}
-            >
+            <button onClick={() => setIsRunning((r) => !r)} style={{ background: isRunning ? 'rgba(239,68,68,0.1)' : 'rgba(170,255,0,0.1)', border: `1px solid ${isRunning ? '#EF4444' : LIME}`, borderRadius: '8px', color: isRunning ? '#EF4444' : LIME, ...DISPLAY, fontSize: '12px', letterSpacing: '0.06em', padding: '8px 10px', cursor: 'pointer', minWidth: '64px', transition: 'all 0.2s' }}>
               {isRunning ? '⏸ PAUSE' : '▶ START'}
             </button>
-            <button
-              onClick={() => setShowResetConfirm(true)}
-              style={{
-                background: 'transparent',
-                border: `1px solid ${BORDER}`,
-                borderRadius: '8px',
-                color: '#444',
-                ...DISPLAY,
-                fontSize: '14px',
-                padding: '8px 10px',
-                cursor: 'pointer',
-              }}
-              title="Réinitialiser le chrono"
-            >
-              ↺
-            </button>
+            <button onClick={() => setShowResetConfirm(true)} style={{ background: 'transparent', border: `1px solid ${BORDER}`, borderRadius: '8px', color: '#444', ...DISPLAY, fontSize: '14px', padding: '8px 10px', cursor: 'pointer' }} title="Réinitialiser le chrono">↺</button>
           </div>
 
-          {/* End match button */}
-          <button
-            onClick={() => setShowEndConfirm(true)}
-            style={{
-              background: 'rgba(239,68,68,0.07)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: '8px',
-              color: '#EF4444',
-              ...DISPLAY,
-              fontSize: '11px',
-              letterSpacing: '0.08em',
-              padding: '8px 12px',
-              cursor: 'pointer',
-              width: '100%',
-            }}
-          >
+          <button onClick={() => setShowEndConfirm(true)} style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', color: '#EF4444', ...DISPLAY, fontSize: '11px', letterSpacing: '0.08em', padding: '8px 12px', cursor: 'pointer', width: '100%' }}>
             ■ FIN DU MATCH
           </button>
         </div>
 
-        {/* Team B */}
-        <TeamZone
-          id="team-zone-b"
-          team="B"
-          players={teamB}
-          score={scoreB}
-          onGoal={() => openGoalSelector('B')}
-          onCsc={() => openCscSelector('B')}
-          onRemove={() => removeLastGoal('B')}
-          flashGoal={flashB}
-        />
+        <TeamZone id="team-zone-b" team="B" players={teamB} score={scoreB} onGoal={() => openGoalSelector('B')} onCsc={() => openCscSelector('B')} onRemove={() => removeLastGoal('B')} flashGoal={flashB} />
       </div>
 
-      {/* ── Events log ticker ───────────────────────────────────────────────── */}
-      <div
-        ref={eventsScrollRef}
-        style={{
-          height: '34px',
-          borderTop: `1px solid ${BORDER}`,
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 12px',
-          gap: '4px',
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          flexShrink: 0,
-          scrollbarWidth: 'none',
-        }}
-      >
-        {events.length === 0 ? (
-          <span
-            style={{
-              ...DISPLAY,
-              fontSize: '11px',
-              color: '#2A2A2A',
-              letterSpacing: '0.1em',
-            }}
-          >
-            AUCUN ÉVÉNEMENT · APPUYEZ SUR + MARQUER POUR ENREGISTRER UN BUT
-          </span>
-        ) : (
-          events.map((evt, i) => (
-            <div
-              key={evt.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                flexShrink: 0,
-              }}
-            >
-              {i > 0 && <span style={{ color: '#222', fontSize: '11px', margin: '0 4px' }}>│</span>}
-              <span style={{ ...DISPLAY, fontSize: '10px', color: '#444' }}>{fmt(evt.timestamp)}</span>
-              <span style={{ fontSize: '11px' }}>{evt.is_own_goal ? '🥅' : '⚽'}</span>
-              {evt.is_own_goal && evt.ownGoalPlayer ? (
-                <>
-                  <span style={{ fontSize: '11px', color: '#FF6400', fontWeight: 600 }}>
-                    CSC {evt.ownGoalPlayer.first_name} {evt.ownGoalPlayer.last_name[0]}.
-                  </span>
-                  <span style={{ fontSize: '10px', color: '#555' }}>
-                    (Éq.{evt.team === 'A' ? 'B' : 'A'} → Éq.{evt.team})
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: evt.team === 'A' ? '#60A5FA' : '#F87171',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {evt.scorer?.first_name} {evt.scorer?.last_name[0]}.
-                  </span>
-                  {evt.assist && (
-                    <span style={{ fontSize: '11px', color: '#444' }}>
-                      → {evt.assist.first_name} {evt.assist.last_name[0]}.
-                    </span>
-                  )}
-                </>
-              )}
-              <div
-                style={{
-                  width: 5,
-                  height: 5,
-                  borderRadius: '50%',
-                  background: evt.team === 'A' ? TEAM_A_COLOR : TEAM_B_COLOR,
-                  flexShrink: 0,
-                  marginLeft: 2,
-                }}
-              />
-            </div>
-          ))
-        )}
-      </div>
+      <EventTicker ref={eventsScrollRef} events={events} />
     </div>
   );
 }

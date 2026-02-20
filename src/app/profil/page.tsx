@@ -9,6 +9,7 @@ import {
   Minus, RotateCcw, LogOut, Crown, Copy, Check
 } from 'lucide-react'
 import { BottomNav } from '@/components/grinta/BottomNav'
+import { AvatarUpload } from '@/components/grinta/AvatarUpload'
 import { CreateMatchModal } from '@/components/grinta/CreateMatchModal'
 import type { Profile } from '@/types/database'
 
@@ -204,15 +205,7 @@ export default function ProfilPage() {
       <div className="px-5 pt-12 pb-4" style={{ background: 'linear-gradient(to bottom, #080808 80%, transparent)' }}>
         {/* Profile hero */}
         <div className="flex items-center gap-4 mb-6 animate-slide-up">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, rgba(170,255,0,0.15), rgba(170,255,0,0.05))',
-              border: '2px solid rgba(170,255,0,0.2)',
-              color: 'var(--lime)',
-              fontFamily: "'Barlow Condensed', sans-serif",
-            }}>
-            {profile.first_name.charAt(0)}{profile.last_name.charAt(0)}
-          </div>
+          <AvatarUpload profile={profile} onUpdated={loadData} />
           <div className="flex-1 min-w-0">
             <h1 className="font-display text-2xl text-white leading-tight">
               {profile.first_name.toUpperCase()} {profile.last_name.toUpperCase()}

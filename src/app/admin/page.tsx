@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { reverseMatchElo } from '@/lib/elo'
 import {
   ArrowLeft, Search, Trash2, Edit3, Users, Zap, Calendar,
   MapPin, ChevronUp, ChevronDown, Shield, RotateCcw, X
@@ -235,36 +236,12 @@ export default function AdminPage() {
 
   const resetMatch = async (id: string) => {
     setResetting(id)
-
-    // Supprimer toutes les données liées au match
-    const [ratingsRes, votesRes, goalsRes] = await Promise.all([
-      supabase.from('ratings').delete().eq('match_id', id),
-      supabase.from('mvp_votes').delete().eq('match_id', id),
-      supabase.from('match_goals').delete().eq('match_id', id),
-    ])
-
-    const deleteError = ratingsRes.error || votesRes.error || goalsRes.error
-    if (deleteError) {
-      toast.error('Erreur suppression données : ' + deleteError.message)
-      setResetting(null)
-      return
-    }
-
-    // Remettre le match en état initial
-    const { error } = await supabase
-      .from('matches')
-      .update({
-        status: 'upcoming',
-        score_equipe_a: null,
-        score_equipe_b: null,
-        duration_seconds: null,
-      })
-      .eq('id', id)
-
-    if (error) toast.error('Erreur : ' + error.message)
-    else {
-      toast.success('Match remis à zéro — notes, votes et buts effacés')
+    try {
+      await reverseMatchElo(id)
+      toast.success('Match remis à zéro — ELO restauré, notes, votes et buts effacés')
       await loadData()
+    } catch (err: any) {
+      toast.error('Erreur reset : ' + (err?.message || 'Erreur inconnue'))
     }
     setResetting(null)
   }
