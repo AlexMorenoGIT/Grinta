@@ -4,7 +4,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ArrowLeft, Trophy } from 'lucide-react'
+import { ArrowLeft, Trophy, Crosshair, Shuffle, Shield, AlertTriangle, Crown } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import Link from 'next/link'
 import { BottomNav } from '@/components/grinta/BottomNav'
 import { CreateMatchModal } from '@/components/grinta/CreateMatchModal'
@@ -24,7 +25,7 @@ interface RankedPlayer {
 interface Category {
   key: string
   title: string
-  icon: string
+  icon: LucideIcon
   accent: string
   players: RankedPlayer[]
 }
@@ -155,14 +156,11 @@ export default function HallOfFamePage() {
         }))
 
     setCategories([
-      { key: 'pichichi', title: 'PICHICHI', icon: '⚽', accent: '#AAFF00', players: toRanked(scorerIds, 'buts') },
-      { key: 'maestro', title: 'MAESTRO', icon: '🎯', accent: '#3B82F6', players: toRanked(assistIds, 'PD') },
+      { key: 'pichichi', title: 'PICHICHI', icon: Crosshair, accent: '#AAFF00', players: toRanked(scorerIds, 'buts') },
+      { key: 'maestro', title: 'MAESTRO', icon: Shuffle, accent: '#3B82F6', players: toRanked(assistIds, 'PD') },
+      { key: 'roc', title: 'LE ROC', icon: Shield, accent: '#FFB800', players: rocRanked },
       {
-        key: 'roc', title: 'LE ROC', icon: '🏔', accent: '#FFB800',
-        players: rocRanked,
-      },
-      {
-        key: 'banane', title: "BANANE D'OR", icon: '🍌', accent: '#FF6B00',
+        key: 'banane', title: "BANANE D'OR", icon: AlertTriangle, accent: '#FF6B00',
         players: (cscProfiles || []).map((p: any) => ({
           id: p.id,
           first_name: p.first_name,
@@ -276,7 +274,7 @@ export default function HallOfFamePage() {
                   borderBottom: '1px solid #1A1A1A',
                 }}
               >
-                <span className="text-xl">{cat.icon}</span>
+                <cat.icon className="w-5 h-5 flex-shrink-0" style={{ color: cat.accent }} />
                 <div className="flex-1">
                   <h2 className="font-display text-base text-white tracking-wide">{cat.title}</h2>
                   <p className="text-[10px] text-[#444]">
@@ -383,9 +381,10 @@ function PodiumSlot({
     >
       {/* Crown for #1 */}
       {rank === 1 && (
-        <span className="text-sm" style={{ filter: 'drop-shadow(0 0 4px rgba(255,215,0,0.4))' }}>
-          👑
-        </span>
+        <Crown
+          className="w-4 h-4"
+          style={{ color: '#FFD700', filter: 'drop-shadow(0 0 4px rgba(255,215,0,0.4))' }}
+        />
       )}
 
       {/* Avatar */}
