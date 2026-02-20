@@ -178,21 +178,14 @@ export default function MatchPage({ params }: { params: Promise<{ id: string }> 
               {match.title.toUpperCase()}
             </h1>
           </div>
-          {/* Indicateur LIVE pulsant */}
-          {isLive && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
-              style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)' }}>
-              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="font-display text-xs text-red-400 tracking-wider">LIVE</span>
-            </div>
-          )}
           <span className={statusConfig.class}>{statusConfig.label}</span>
-          {isCreator && match.status !== 'completed' && match.status !== 'cancelled' && (
+          {match.status !== 'completed' && match.status !== 'cancelled' && (
             <button
               onClick={() => router.push(`/match/${id}/live`)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-display text-xs font-bold tracking-wider transition-all"
               style={{ background: 'rgba(170,255,0,0.12)', border: '1px solid rgba(170,255,0,0.3)', color: 'var(--lime)' }}
             >
+              {isLive && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
               <Zap className="w-3.5 h-3.5" />
               LIVE
             </button>
