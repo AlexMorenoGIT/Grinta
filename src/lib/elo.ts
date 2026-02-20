@@ -393,13 +393,77 @@ export async function reverseMatchElo(matchId: string) {
     await supabase.from('elo_history').delete().eq('match_id', matchId)
   }
 
-  // 4. Always delete match result data
+  // 4. Reverse own_goals BEFORE deleting match_goals
+  const { data: ownGoals } = await supabase
+    .from('match_goals')
+    .select('scorer_id')
+    .eq('match_id', matchId)
+    .eq('is_own_goal', true)
+
+  if (ownGoals && ownGoals.length > 0) {
+    // Count own goals per player
+    const ownGoalCounts: Record<string, number> = {}
+    for (const og of ownGoals) {
+      if (og.scorer_id) {
+        ownGoalCounts[og.scorer_id] = (ownGoalCounts[og.scorer_id] || 0) + 1
+      }
+    }
+    // Decrement own_goals for each player
+    for (const [playerId, count] of Object.entries(ownGoalCounts)) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('own_goals')
+        .eq('id', playerId)
+        .single()
+      if (profile) {
+        await supabase
+          .from('profiles')
+          .update({ own_goals: Math.max(0, profile.own_goals - count) })
+          .eq('id', playerId)
+      }
+    }
+  }
+
+  // 5. Collect affected player IDs for avg_rating recalc BEFORE deleting ratings
+  const { data: matchRatings } = await supabase
+    .from('ratings')
+    .select('rated_player_id')
+    .eq('match_id', matchId)
+
+  const affectedPlayerIds = new Set<string>()
+  if (matchRatings) {
+    for (const r of matchRatings) {
+      affectedPlayerIds.add(r.rated_player_id)
+    }
+  }
+
+  // 6. Delete match result data
   await supabase.from('ratings').delete().eq('match_id', matchId)
   await supabase.from('mvp_votes').delete().eq('match_id', matchId)
   await supabase.from('match_goals').delete().eq('match_id', matchId)
   await supabase.from('match_challenges').delete().eq('match_id', matchId)
+  await supabase.from('player_badges').delete().eq('match_id', matchId)
 
-  // 5. Always reset match status — this MUST run regardless of ELO history
+  // 7. Recalculate avg_rating for all affected players (after deleting this match's ratings)
+  for (const playerId of affectedPlayerIds) {
+    const { data: remainingRatings } = await supabase
+      .from('ratings')
+      .select('score')
+      .eq('rated_player_id', playerId)
+
+    let newAvg: number | null = null
+    if (remainingRatings && remainingRatings.length > 0) {
+      const sum = remainingRatings.reduce((s: number, r: any) => s + r.score, 0)
+      newAvg = parseFloat((sum / remainingRatings.length).toFixed(2))
+    }
+
+    await supabase
+      .from('profiles')
+      .update({ avg_rating: newAvg })
+      .eq('id', playerId)
+  }
+
+  // 8. Always reset match status — this MUST run regardless of ELO history
   await supabase
     .from('matches')
     .update({
