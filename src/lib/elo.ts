@@ -338,58 +338,69 @@ async function checkChallenges(matchId: string) {
 export async function reverseMatchElo(matchId: string) {
   const supabase = createClient() as any
 
-  // 1. Lire elo_history pour ce match
+  // 1. Fetch elo_history (may be empty — that's OK)
   const { data: history } = await supabase
     .from('elo_history')
     .select('*')
     .eq('match_id', matchId)
     .order('created_at')
 
-  if (!history || history.length === 0) return
-
-  // 2. Pour chaque entrée : soustraire le delta du profil
-  for (const entry of history) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('elo, elo_gain, matches_played, wins, losses, draws, mvp_count')
-      .eq('id', entry.player_id)
+  // 2. Reverse ELO only if history exists
+  if (history && history.length > 0) {
+    // Fetch match to detect draws
+    const { data: matchData } = await supabase
+      .from('matches')
+      .select('score_equipe_a, score_equipe_b')
+      .eq('id', matchId)
       .single()
+    const isDraw = matchData &&
+      matchData.score_equipe_a !== null &&
+      matchData.score_equipe_a === matchData.score_equipe_b
 
-    if (!profile) continue
+    for (const entry of history) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('elo, elo_gain, matches_played, wins, losses, draws, mvp_count')
+        .eq('id', entry.player_id)
+        .single()
 
-    const updates: any = {
-      elo: Math.max(100, profile.elo - entry.delta),
-      elo_gain: profile.elo_gain - entry.delta,
+      if (!profile) continue
+
+      const updates: any = {
+        elo: Math.max(100, profile.elo - entry.delta),
+        elo_gain: profile.elo_gain - entry.delta,
+      }
+
+      if (entry.reason.startsWith('Victoire')) {
+        updates.matches_played = Math.max(0, profile.matches_played - 1)
+        updates.wins = Math.max(0, profile.wins - 1)
+      } else if (entry.reason.startsWith('Défaite')) {
+        updates.matches_played = Math.max(0, profile.matches_played - 1)
+        if (isDraw) {
+          // Draw was recorded as "Défaite" by the RPC but corrected to draws
+          updates.draws = Math.max(0, profile.draws - 1)
+        } else {
+          updates.losses = Math.max(0, profile.losses - 1)
+        }
+      } else if (entry.reason.includes('MVP')) {
+        updates.mvp_count = Math.max(0, profile.mvp_count - 1)
+      }
+      // Challenge bonuses: only ELO is reversed
+
+      await supabase.from('profiles').update(updates).eq('id', entry.player_id)
     }
 
-    // Déterminer quoi décrémenter selon la raison
-    if (entry.reason.startsWith('Victoire')) {
-      updates.matches_played = Math.max(0, profile.matches_played - 1)
-      updates.wins = Math.max(0, profile.wins - 1)
-    } else if (entry.reason.startsWith('Défaite')) {
-      updates.matches_played = Math.max(0, profile.matches_played - 1)
-      updates.losses = Math.max(0, profile.losses - 1)
-    } else if (entry.reason.includes('MVP')) {
-      updates.mvp_count = Math.max(0, profile.mvp_count - 1)
-    }
-    // Les défis: on retire juste l'ELO
-
-    await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', entry.player_id)
+    // 3. Delete elo_history
+    await supabase.from('elo_history').delete().eq('match_id', matchId)
   }
 
-  // 3. Supprimer les entrées elo_history du match
-  await supabase.from('elo_history').delete().eq('match_id', matchId)
-
-  // 4. Supprimer ratings, mvp_votes, match_goals, match_challenges
+  // 4. Always delete match result data
   await supabase.from('ratings').delete().eq('match_id', matchId)
   await supabase.from('mvp_votes').delete().eq('match_id', matchId)
   await supabase.from('match_goals').delete().eq('match_id', matchId)
   await supabase.from('match_challenges').delete().eq('match_id', matchId)
 
-  // 5. Reset match status/scores
+  // 5. Always reset match status — this MUST run regardless of ELO history
   await supabase
     .from('matches')
     .update({
