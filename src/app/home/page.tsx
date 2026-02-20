@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { MatchCard } from '@/components/grinta/MatchCard'
 import { BottomNav } from '@/components/grinta/BottomNav'
 import { CreateMatchModal } from '@/components/grinta/CreateMatchModal'
+import { InstallPrompt } from '@/components/grinta/InstallPrompt'
 import type { Match, MatchPlayer, Profile } from '@/types/database'
 import { Search, Zap } from 'lucide-react'
 
@@ -167,6 +168,7 @@ export default function HomePage() {
         )}
       </div>
 
+      <InstallPrompt />
       <BottomNav onCreateMatch={() => setShowCreate(true)} isAdmin={profile?.is_admin ?? false} />
       <CreateMatchModal
         open={showCreate}
