@@ -603,3 +603,46 @@ create policy "Les badges sont visibles par tous"
 create policy "Le système peut créer des badges"
   on public.player_badges for insert to authenticated
   with check (true);
+
+-- ============================================================
+-- STORAGE: Bucket avatars (photos de profil)
+-- ============================================================
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  array['image/webp', 'image/jpeg', 'image/png', 'image/gif']
+)
+on conflict (id) do nothing;
+
+create policy "Avatars accessibles publiquement"
+  on storage.objects for select
+  to public
+  using (bucket_id = 'avatars');
+
+create policy "Upload de son propre avatar"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and name = auth.uid()::text || '.webp'
+  );
+
+create policy "Mise à jour de son propre avatar"
+  on storage.objects for update
+  to authenticated
+  using (
+    bucket_id = 'avatars'
+    and name = auth.uid()::text || '.webp'
+  );
+
+create policy "Suppression de son propre avatar"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'avatars'
+    and name = auth.uid()::text || '.webp'
+  );
