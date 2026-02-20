@@ -490,6 +490,15 @@ create policy "Les inscriptions sont visibles par tous"
 create policy "Les utilisateurs peuvent s'inscrire à un match"
   on public.match_players for insert to authenticated with check (auth.uid() = player_id);
 
+create policy "Les admins peuvent inscrire n'importe quel joueur"
+  on public.match_players for insert to authenticated
+  with check (
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and is_admin = true
+    )
+  );
+
 create policy "Les utilisateurs peuvent se désinscrire"
   on public.match_players for delete to authenticated using (auth.uid() = player_id);
 
