@@ -85,14 +85,17 @@ export function AvatarUpload({ profile, onUpdated }: AvatarUploadProps) {
   return (
     <div className="relative inline-block">
       <PlayerAvatar player={profile} size={64} />
-      <button
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
+      {/* label native → déclenche le sélecteur de fichier de façon fiable sur iOS Safari/PWA */}
+      <label
+        htmlFor="avatar-upload"
         className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center transition-all"
         style={{
           background: 'var(--lime)',
           border: '2px solid #080808',
           color: '#000',
+          cursor: uploading ? 'not-allowed' : 'pointer',
+          opacity: uploading ? 0.7 : 1,
+          pointerEvents: uploading ? 'none' : 'auto',
         }}
       >
         {uploading ? (
@@ -100,13 +103,15 @@ export function AvatarUpload({ profile, onUpdated }: AvatarUploadProps) {
         ) : (
           <Camera className="w-3.5 h-3.5" />
         )}
-      </button>
+      </label>
+      {/* sr-only : visuellement caché mais non display:none, nécessaire pour iOS */}
       <input
+        id="avatar-upload"
         ref={inputRef}
         type="file"
         accept="image/*"
         onChange={handleUpload}
-        className="hidden"
+        className="sr-only"
       />
     </div>
   )

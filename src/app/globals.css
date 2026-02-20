@@ -131,6 +131,14 @@
   }
 }
 
+/* ─── Sonner toasts : respect Dynamic Island / notch ─── */
+/* Sonner positionne le container avec un style inline (top: offset),
+   on le repousse sous la safe-area pour ne pas se retrouver derrière
+   le Dynamic Island ou l'encoche sur iPhone. */
+[data-sonner-toaster][data-y-position="top"] {
+  top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+}
+
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: #0D0D0D; }
