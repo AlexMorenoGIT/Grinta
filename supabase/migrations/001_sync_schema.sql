@@ -33,9 +33,11 @@ CREATE INDEX IF NOT EXISTS idx_match_goals_scorer ON public.match_goals(scorer_i
 
 ALTER TABLE public.match_goals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Les buts sont visibles par tous" ON public.match_goals;
 CREATE POLICY "Les buts sont visibles par tous"
   ON public.match_goals FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Le créateur du match peut gérer les buts" ON public.match_goals;
 CREATE POLICY "Le créateur du match peut gérer les buts"
   ON public.match_goals FOR ALL TO authenticated
   USING (
@@ -76,6 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_match_challenges_player ON public.match_challenge
 ALTER TABLE public.match_challenges ENABLE ROW LEVEL SECURITY;
 
 -- Chaque joueur ne voit que son propre défi jusqu'à la fin du match
+DROP POLICY IF EXISTS "Joueur voit son propre défi" ON public.match_challenges;
 CREATE POLICY "Joueur voit son propre défi"
   ON public.match_challenges FOR SELECT TO authenticated
   USING (
@@ -86,6 +89,7 @@ CREATE POLICY "Joueur voit son propre défi"
     )
   );
 
+DROP POLICY IF EXISTS "Le système peut créer des défis" ON public.match_challenges;
 CREATE POLICY "Le système peut créer des défis"
   ON public.match_challenges FOR INSERT TO authenticated
   WITH CHECK (
@@ -95,6 +99,7 @@ CREATE POLICY "Le système peut créer des défis"
     )
   );
 
+DROP POLICY IF EXISTS "Le système peut mettre à jour les défis" ON public.match_challenges;
 CREATE POLICY "Le système peut mettre à jour les défis"
   ON public.match_challenges FOR UPDATE TO authenticated
   USING (
@@ -118,9 +123,11 @@ CREATE INDEX IF NOT EXISTS idx_player_badges_player ON public.player_badges(play
 
 ALTER TABLE public.player_badges ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Les badges sont visibles par tous" ON public.player_badges;
 CREATE POLICY "Les badges sont visibles par tous"
   ON public.player_badges FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Le système peut créer des badges" ON public.player_badges;
 CREATE POLICY "Le système peut créer des badges"
   ON public.player_badges FOR INSERT TO authenticated
   WITH CHECK (true);
@@ -197,5 +204,11 @@ END;
 $$;
 
 -- ── Activer Realtime sur matches et match_goals ──
-ALTER PUBLICATION supabase_realtime ADD TABLE public.matches;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.match_goals;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.matches;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.match_goals;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
